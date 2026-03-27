@@ -11,3 +11,4 @@ class WebsiteResponse(BaseModel):
     risk: str
     score: int
     reasons: List[str]
+    ai_analysis: str

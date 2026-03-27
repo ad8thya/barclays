@@ -1,69 +1,108 @@
+from services.llm_service import analyze_with_llm
 import requests
 from urllib.parse import urlparse
+from bs4 import BeautifulSoup
+
 
 def analyze_website(url: str):
     result = {}
 
-    # normalize URL
+    # 🔹 Normalize URL
     if not url.startswith("http"):
         url = "http://" + url
 
     parsed = urlparse(url)
     domain = parsed.netloc.lower()
-
     result["domain"] = domain
 
-    # check if reachable
+    # 🔹 Try fetching website
     try:
         response = requests.get(url, timeout=5)
         final_url = response.url.lower()
+        html = response.text
         result["status_code"] = response.status_code
         result["reachable"] = True
-    except:
+    except Exception as e:
+        print("REQUEST ERROR:", e)
         return {
             "domain": domain,
+            "status_code": None,
             "reachable": False,
             "risk": "HIGH",
             "score": 90,
-            "reasons": ["Website not reachable"]
+            "reasons": ["Website not reachable"],
+            "ai_analysis": "Site is unreachable, cannot perform full analysis"
         }
 
-    # 🔥 smarter scoring
+    # 🔹 Parse HTML
+    soup = BeautifulSoup(html, "html.parser")
+
+    # 🔹 Extract features FIRST
+    forms = soup.find_all("form")
+    password_field = soup.find("input", {"type": "password"})
+
+    scripts = soup.find_all("script", src=True)
+    external_scripts = [
+        s["src"] for s in scripts if domain not in s["src"]
+    ]
+
+    # 🔹 Feature object (for LLM)
+    features = {
+        "url": url,
+        "domain": domain,
+        "has_password_field": bool(password_field),
+        "num_forms": len(forms),
+        "external_scripts": len(external_scripts),
+        "uses_https": final_url.startswith("https"),
+        "url_length": len(url),
+        "has_suspicious_keywords": any(
+            word in url.lower() for word in ["login", "verify", "secure", "account"]
+        ),
+    }
+
+    # 🔹 Risk scoring
     risk_score = 0
     reasons = []
 
-    # 1. suspicious words in URL (NOT HTML anymore)
-    suspicious_words = ["login", "verify", "secure", "account", "update"]
-    if any(word in url.lower() for word in suspicious_words):
-        risk_score += 30
+    # URL checks
+    if features["has_suspicious_keywords"]:
+        risk_score += 25
         reasons.append("Suspicious keywords in URL")
 
-    # 2. too many dots (subdomain abuse)
     if domain.count(".") > 3:
-        risk_score += 20
+        risk_score += 15
         reasons.append("Too many subdomains")
 
-    # 3. URL length
     if len(url) > 75:
         risk_score += 10
-        reasons.append("URL is unusually long")
+        reasons.append("URL too long")
 
-    # 4. HTTP instead of HTTPS (check actual final URL)
-    if not final_url.startswith("https"):
-        risk_score += 20
-        reasons.append("Not using HTTPS")
-
-    # 5. numbers in domain (common in fake sites)
-    if any(char.isdigit() for char in domain):
-        risk_score += 10
-        reasons.append("Numbers in domain")
-
-    # 6. @ symbol trick
     if "@" in url:
         risk_score += 30
         reasons.append("Contains @ symbol")
 
-    # 🔥 classify
+    if not features["uses_https"]:
+        risk_score += 15
+        reasons.append("Not using HTTPS")
+
+    # Content checks
+    if forms:
+        risk_score += 15
+        reasons.append("Contains form (possible login page)")
+
+    if password_field:
+        risk_score += 20
+        reasons.append("Password field detected")
+
+    if len(external_scripts) > 3:
+        risk_score += 10
+        reasons.append("Multiple external scripts")
+
+    if len(response.history) > 2:
+        risk_score += 10
+        reasons.append("Multiple redirects")
+
+    # 🔹 Classification
     if risk_score < 30:
         risk = "LOW"
     elif risk_score < 60:
@@ -71,8 +110,19 @@ def analyze_website(url: str):
     else:
         risk = "HIGH"
 
-    result["risk"] = risk
-    result["score"] = risk_score
-    result["reasons"] = reasons
-    print('new version running')
+    # 🔹 LLM analysis (safe)
+    try:
+        ai_analysis = analyze_with_llm(features)
+    except Exception as e:
+        print("LLM ERROR:", e)
+        ai_analysis = "LLM analysis failed"
+
+    # 🔹 Final result
+    result.update({
+        "risk": risk,
+        "score": risk_score,
+        "reasons": reasons,
+        "ai_analysis": ai_analysis
+    })
+
     return result
