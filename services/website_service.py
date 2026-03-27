@@ -1,14 +1,16 @@
+from urllib.parse import urljoin
 from services.js_analysis_service import analyze_js_semantics
 from services.llm_service import analyze_with_llm
-import requests
+from services.sandbox_service import run_sandbox
+
 from urllib.parse import urlparse
-from bs4 import BeautifulSoup
+import requests
 
 
 def analyze_website(url: str):
     result = {}
 
-    # 🔹 Normalize URL
+    # 🔹 Normalize
     if not url.startswith("http"):
         url = "http://" + url
 
@@ -16,15 +18,10 @@ def analyze_website(url: str):
     domain = parsed.netloc.lower()
     result["domain"] = domain
 
-    # 🔹 Fetch website
-    try:
-        response = requests.get(url, timeout=5)
-        final_url = response.url.lower()
-        html = response.text
-        result["status_code"] = response.status_code
-        result["reachable"] = True
-    except Exception as e:
-        print("REQUEST ERROR:", e)
+    # 🔹 Run sandbox
+    sandbox_data = run_sandbox(url)
+
+    if not sandbox_data.get("reachable"):
         return {
             "domain": domain,
             "status_code": None,
@@ -35,44 +32,46 @@ def analyze_website(url: str):
             "final_risk": "HIGH",
             "confidence": 80,
             "reasons": ["Website not reachable"],
-            "ai_analysis": "Site is unreachable, cannot perform full analysis",
-            "js_analysis": "No JS analysis available"
+            "ai_analysis": "Site unreachable",
+            "js_analysis": "No JS analysis"
         }
 
-    # 🔹 Parse HTML
-    soup = BeautifulSoup(html, "html.parser")
+    # 🔹 Extract from sandbox
+    result["status_code"] = sandbox_data["status_code"]
+    result["reachable"] = True
 
-    # 🔹 Extract features
-    forms = soup.find_all("form")
-    password_field = soup.find("input", {"type": "password"})
+    forms = sandbox_data["num_forms"]
+    password_field = sandbox_data["has_password_field"]
+    external_scripts = sandbox_data["external_scripts"]
+    redirects = sandbox_data["redirect_count"]
+    uses_https = sandbox_data["uses_https"]
 
-    scripts = soup.find_all("script", src=True)
-    external_scripts = [
-        s["src"] for s in scripts if domain not in s["src"]
-    ]
+    # 🔹 Fetch JS content (light)
 
-    # 🔹 Fetch JS content
     js_contents = []
+
     for script in external_scripts[:2]:
         try:
-            if script.startswith("http"):
-                js_res = requests.get(script, timeout=3)
-                js_contents.append(js_res.text[:1000])
-        except:
-            continue
+            full_url = urljoin(url, script)  # 🔥 FIX
 
-    # 🔹 Feature object
+            js_res = requests.get(full_url, timeout=3)
+            js_contents.append(js_res.text[:1000])
+
+        except Exception as e:
+            continue
+    # 🔹 Features for LLM
     features = {
         "url": url,
         "domain": domain,
-        "has_password_field": bool(password_field),
-        "num_forms": len(forms),
+        "has_password_field": password_field,
+        "num_forms": forms,
         "external_scripts": len(external_scripts),
-        "uses_https": final_url.startswith("https"),
+        "uses_https": uses_https,
         "url_length": len(url),
         "has_suspicious_keywords": any(
             word in url.lower() for word in ["login", "verify", "secure", "account"]
         ),
+        "redirects": redirects
     }
 
     # 🔹 Heuristic scoring
@@ -95,11 +94,11 @@ def analyze_website(url: str):
         risk_score += 30
         reasons.append("Contains @ symbol")
 
-    if not features["uses_https"]:
+    if not uses_https:
         risk_score += 15
         reasons.append("Not using HTTPS")
 
-    if forms:
+    if forms > 0:
         risk_score += 15
         reasons.append("Contains form (possible login page)")
 
@@ -111,7 +110,7 @@ def analyze_website(url: str):
         risk_score += 10
         reasons.append("Multiple external scripts")
 
-    if len(response.history) > 2:
+    if redirects > 2:
         risk_score += 10
         reasons.append("Multiple redirects")
 
@@ -174,11 +173,11 @@ def analyze_website(url: str):
 
     llm_score = llm_score_map.get(llm_risk, 50)
 
-    # 🔹 FINAL FUSION SCORE
-    final_score = int((risk_score * 0.8) + (llm_score * 0.2))
+    # 🔹 Final fusion
+    final_score = int((risk_score * 0.5) + (llm_score * 0.5))
 
     if confidence < 70:
-        final_score += 5  # uncertainty bump
+        final_score += 5
 
     # 🔹 Final classification
     if final_score < 30:
@@ -188,8 +187,18 @@ def analyze_website(url: str):
     else:
         final_risk = "HIGH"
 
-    # 🔹 Final result
+    # 🔹 Final output
     result.update({
+        
+        "sandbox": {
+            "redirects": sandbox_data["redirect_count"],
+            "external_scripts": len(sandbox_data["external_scripts"]),
+            "forms": sandbox_data["num_forms"],
+            "has_password_field": sandbox_data["has_password_field"],
+            "uses_https": sandbox_data["uses_https"],
+            "external_links": sandbox_data["external_links_count"]
+        }, 
+
         "risk": risk,
         "score": risk_score,
 

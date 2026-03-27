@@ -1,8 +1,18 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
+
 
 class WebsiteRequest(BaseModel):
     url: str
+
+
+class SandboxData(BaseModel):
+    redirects: int
+    external_scripts: int
+    forms: int
+    has_password_field: bool
+    uses_https: bool
+    external_links: int
 
 
 class WebsiteResponse(BaseModel):
@@ -10,22 +20,25 @@ class WebsiteResponse(BaseModel):
     status_code: Optional[int] = None
     reachable: bool
 
-    # 🔹 heuristic
+    # heuristic
     risk: str
     score: int
 
-    # 🔹 fused output (IMPORTANT)
+    # fused
     final_score: int
     final_risk: str
 
-    # 🔹 reasoning
-    reasons: List[str] = []
+    # sandbox 🔥
+    sandbox: SandboxData
 
-    # 🔹 AI layers
+    # reasoning
+    reasons: List[str] = Field(default_factory=list)
+
+    # AI
     ai_analysis: Optional[str] = None
     js_analysis: Optional[str] = None
 
-    # 🔹 meta
-    confidence: int
-    llm_risk: Optional[str] = None
-    disagreement: Optional[bool] = None
+    # meta
+    confidence: int = 100
+    llm_risk: Optional[str] = "UNKNOWN"
+    disagreement: Optional[bool] = False
