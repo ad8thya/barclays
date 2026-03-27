@@ -2,6 +2,12 @@
 
 import { useAnalysis } from "@/context/AnalysisContext";
 
+const CHANNEL_LABELS = {
+  push_notification: "Push Notification",
+  sms: "SMS to Registered Number",
+  in_app_biometric: "In-App Biometric Verification",
+};
+
 export default function OOBModal() {
   const { oobTriggered, setOobTriggered, incidentId, scoreResult } = useAnalysis();
 
@@ -9,6 +15,12 @@ export default function OOBModal() {
 
   const frs = scoreResult?.final_risk_score || 0;
   const verdict = scoreResult?.threshold_breached || "OOB";
+  const oob = scoreResult?.oob || {};
+  const channel = CHANNEL_LABELS[oob.channel] || oob.channel || "Push Notification";
+  const channelReason = oob.channel_reason || "";
+  const compromised = oob.compromised_channels || [];
+  const campaignSummary = oob.campaign_summary || "";
+  const notification = oob.notification || {};
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 animate-fade-in">
@@ -33,20 +45,44 @@ export default function OOBModal() {
 
         {/* Body */}
         <div className="px-8 py-6">
-          <p className="text-sm text-slate-400 mb-5 leading-relaxed">
-            FRS has exceeded the <strong className="text-white font-semibold">0.80 threshold</strong> during
-            an active transaction. A push notification has been sent to the customer&apos;s
-            registered device via a <strong className="text-white font-semibold">trusted secondary channel</strong>.
-          </p>
+          {/* Notification preview */}
+          {notification.body && (
+            <div className="bg-white/[0.02] border border-white/[0.04] rounded-lg p-3.5 mb-5">
+              <p className="text-[11px] text-slate-500 uppercase tracking-widest mb-1.5 font-medium">Customer Notification</p>
+              <p className="text-[12px] text-slate-300 leading-relaxed">{notification.body}</p>
+            </div>
+          )}
+
+          {!notification.body && (
+            <p className="text-sm text-slate-400 mb-5 leading-relaxed">
+              FRS has exceeded the <strong className="text-white font-semibold">0.80 threshold</strong> during
+              an active transaction. Verification sent via trusted secondary channel.
+            </p>
+          )}
 
           {/* Detail rows */}
-          <div className="bg-white/[0.02] rounded-lg border border-white/[0.04] p-4 mb-6 space-y-2.5">
+          <div className="bg-white/[0.02] rounded-lg border border-white/[0.04] p-4 mb-5 space-y-2.5">
             <DetailRow label="Incident" value={incidentId} />
             <DetailRow label="Final Risk Score" value={`${(frs * 100).toFixed(0)}%`} valueColor="text-red-400" />
-            <DetailRow label="Threshold" value={verdict} />
-            <DetailRow label="Action Taken" value="FREEZE & OOB Verification" valueColor="text-red-400" />
-            <DetailRow label="Channel" value="Barclays Mobile App (Biometric)" />
+            <DetailRow label="Verdict" value={verdict} />
+            <DetailRow label="Channel" value={channel} valueColor="text-blue-400" />
+            {compromised.length > 0 && (
+              <DetailRow label="Compromised" value={compromised.join(", ")} valueColor="text-red-400" />
+            )}
+            {channelReason && (
+              <div className="pt-2 border-t border-white/[0.04]">
+                <p className="text-[11px] text-slate-500 italic">{channelReason}</p>
+              </div>
+            )}
           </div>
+
+          {/* Campaign context */}
+          {campaignSummary && (
+            <div className="bg-red-500/5 border border-red-500/15 rounded-lg p-3 mb-5">
+              <p className="text-[10px] text-red-400/60 uppercase tracking-widest mb-1 font-medium">Campaign Intel</p>
+              <p className="text-[12px] text-red-400/90">{campaignSummary}</p>
+            </div>
+          )}
 
           <div className="flex gap-3">
             <button

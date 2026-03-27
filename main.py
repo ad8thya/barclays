@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from services.graph_service import init_db
+from services.oob_service import init_oob_table
 
 from routers import score, email, website, attachments, explain
 from routes import audio
@@ -15,6 +16,7 @@ app.add_middleware(
 )
 
 init_db()
+init_oob_table()
 
 app.include_router(score.router)
 app.include_router(email.router)
