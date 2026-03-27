@@ -19,7 +19,7 @@ init_db()
 app.include_router(score.router)
 app.include_router(email.router)
 
-app.include_router(website.router, prefix="/website", tags=["Website"])
+app.include_router(website.router, tags=["Website"])
 
 app.include_router(attachments.router)
 app.include_router(explain.router)

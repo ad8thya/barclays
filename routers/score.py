@@ -1,3 +1,5 @@
+import sqlite3
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List
@@ -39,7 +41,6 @@ async def analyze_score(req: ScoreRequest):
            0.10 * graph_score)
 
     # Step 4 - update final score in DB
-    import sqlite3
     conn = sqlite3.connect("fraud_graph.db")
     conn.execute("UPDATE incidents SET final_score=? WHERE incident_id=?",
                  (round(frs, 2), req.incident_id))

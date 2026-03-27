@@ -4,6 +4,6 @@ from schemas.website import WebsiteRequest, WebsiteResponse
 
 router = APIRouter()
 
-@router.post("/analyze", response_model=WebsiteResponse)
+@router.post("/analyze/website")
 def analyze(data: WebsiteRequest):
     return analyze_website(data.url)
