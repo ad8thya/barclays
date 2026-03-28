@@ -1,0 +1,22 @@
+# Dependencies
+frontend/node_modules/
+node_modules/
+
+# Next.js build
+frontend/.next/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# SQLite DB (generated at runtime)
+fraud_graph.db
+
+# Environment
+.env
+.env.local
+
+# OS
+Thumbs.db
+.DS_Store

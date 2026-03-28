@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+networkx
+requests
+beautifulsoup4
+pydantic

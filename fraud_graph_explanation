@@ -1,0 +1,55 @@
+What You Built — File by File
+
+
+services/graph_service.py
+This is the brain of the entire fraud graph. It does four things:
+1. init_db() — Creates two SQLite tables on startup. incidents stores every fraud event that comes in with its risk scores. signals stores the extracted indicators (domains, IPs) separately so they can be matched across different incidents. The reason they're separate tables is so one incident can have multiple signals and you can query "who else shares this domain" efficiently.
+2. store_incident() — Every time a new event comes in, this writes it to both tables. The incident goes into incidents, and each domain/IP gets its own row in signals. This is what makes the graph dynamic — every new submission permanently adds to the graph.
+3. find_correlated_incidents() — This is the correlation engine. It takes an incident ID, looks up all its signals, then queries the signals table for any other incident sharing the same value. If INC-2043 has barcl4ys-secure.com and INC-2031 also has barcl4ys-secure.com, they get linked. This is what produces campaign_detected: true.
+4. build_graph() — Reads the entire DB and constructs a NetworkX graph object, then converts it to a JSON list of nodes and edges that the frontend can render visually.
+5. get_graph_score() — Converts the correlation result into a 0-1 number. More linked victims and more shared signals = higher score. This feeds into the FRS formula as the 0.10 weight component.
+
+
+
+routers/score.py
+This is the API endpoint the frontend calls. It orchestrates everything in the right order:
+
+
+Store the incident and its signals first
+Then run graph correlation (signals must be in DB before checking)
+Then calculate FRS using the real graph score
+Then update the DB with the correct final score
+Return the complete result
+
+It also owns the /graph/all endpoint which the frontend calls to render the graph visualization.
+
+scripts/seed_graph.py
+This pre-loads the DB with two prior victims before the demo starts. Without this, the graph starts empty and the first submission has nothing to correlate against. The seed makes the demo story work — your demo victim walks into an attack that the system already has history on.
+
+main.py
+Ties everything together. Starts FastAPI, enables CORS so the frontend can call the backend, calls init_db() once on startup, and registers all routers so their endpoints are accessible.
+
+What You've Achieved
+CapabilityStatusDynamic graph that grows with every submission✓ DonePartial signal matching (domain OR IP is enough)✓ DoneCampaign detection across multiple victims✓ DoneGraph score feeding into FRS formula✓ DoneOOB trigger when FRS crosses 0.80✓ DoneScore breakdown showing each layer's contribution✓ Done/graph/all endpoint returning nodes and edges✓ DonePre-seeded prior victims for demo✓ Done
+
+What You Haven't Done Yet
+Backend gaps:
+
+campaign_id is hardcoded as "CAMP-A" — ideally it should be assigned dynamically based on which cluster of incidents are linked. Not critical for demo but a judge might notice.
+INC-2042's risk_score in the graph was showing 0.0 earlier — verify this is fixed after the last code change.
+
+Frontend — this is the big remaining piece:
+
+The graph visualization (nodes and edges rendered visually using D3.js or Pyvis)
+The dashboard showing all 5 screens
+The FRS gauge/progress bar
+The OOB modal that fires when oob_triggered: true
+The score breakdown display
+The human readable explanation panel
+
+Your backend serves everything the frontend needs. /analyze/score gives the FRS, breakdown, graph data, and OOB flag. /graph/all gives the full node and edge list for visualization. The frontend just needs to call these two endpoints and render the results.
+
+
+
+
+

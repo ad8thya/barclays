@@ -1,6 +1,6 @@
 # routers/attachments.py
 import uuid
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File
 from schemas.attachment import AttachmentResponse, AttachmentData
 from services.attachment_service import analyze_attachment
 from utils.file import read_upload, detect_type_from_filename

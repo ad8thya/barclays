@@ -1,6 +1,30 @@
 from fastapi import FastAPI
-from routers.attachments import router as attachments_router
+from fastapi.middleware.cors import CORSMiddleware
+from services.graph_service import init_db
+from services.oob_service import init_oob_table
+
+from routers import score, email, website, attachments, explain
+from routes import audio
 
 app = FastAPI()
 
-app.include_router(attachments_router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
+init_db()
+init_oob_table()
+
+app.include_router(score.router)
+app.include_router(email.router)
+app.include_router(website.router, tags=["Website"])
+app.include_router(attachments.router)
+app.include_router(explain.router)
+app.include_router(audio.router)
+
+@app.get("/")
+def root():
+    return {"message": "CrossShield running 🚀"}
