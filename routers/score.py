@@ -17,6 +17,7 @@ class ScoreRequest(BaseModel):
     audio_score: float
     domains: List[str] = []
     ips: List[str] = []
+    website_suspicious: bool = False 
 
 class OOBResponse(BaseModel):
     incident_id: str
@@ -24,8 +25,10 @@ class OOBResponse(BaseModel):
 
 @router.post("/analyze/score")
 async def analyze_score(req: ScoreRequest):
+    suspicious_domains = req.domains if req.website_suspicious else []
+    suspicious_ips = req.ips
 
-    # Step 1 - store signals first so graph can see them
+    signals = {"domains": suspicious_domains, "ips": suspicious_ips}
     signals = {"domains": req.domains, "ips": req.ips}
     scores = {
         "email": req.email_score,

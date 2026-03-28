@@ -88,10 +88,19 @@ export default function InputPage() {
     }
 
 
+    const websiteSuspicious = (
+    webRes?.data?.typosquatting?.is_suspicious === true ||
+    webRes?.data?.final_risk === "HIGH" && webRes?.data?.score > 60
+    );
+    
+
+
     // ── Extract real domain from website result ──
     const extractedDomains = [];
-    const domainFromWeb = webRes?.data?.domain || webRes?.domain;
-    if (domainFromWeb) extractedDomains.push(domainFromWeb);
+    if (websiteSuspicious) {
+      const domainFromWeb = webRes?.data?.domain;
+      if (domainFromWeb) extractedDomains.push(domainFromWeb);
+    }
 
     // ── Store in context ──
     ctx.setEmailResult(emailRes?.data      || null);
@@ -111,6 +120,7 @@ export default function InputPage() {
         audio_score:      0,
         domains: extractedDomains.length > 0 ? extractedDomains : [],
         ips: [],
+        website_suspicious: websiteSuspicious,   // ← add this
       });
       updateProgress("score", "done");
 
