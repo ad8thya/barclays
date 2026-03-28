@@ -12,7 +12,7 @@ _model_dir = os.path.abspath(
 )
 sys.path.insert(0, _model_dir)
 
-from email_utils.features import extract_meta, extract_signals, extract_flagged
+from services.email_model.email_utils.features import extract_meta, extract_signals, extract_flagged
 
 router = APIRouter()
 
