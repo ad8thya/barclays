@@ -3,15 +3,17 @@ module.exports = {
   content: [
     "./app/**/*.{js,jsx}",
     "./components/**/*.{js,jsx}",
+    "./context/**/*.{js,jsx}",
+    "./hooks/**/*.{js,jsx}",
   ],
   theme: {
     extend: {
       colors: {
         bg: {
-          primary: "#0a0f1e",
+          primary: "#080d1a",
           card: "#0d1424",
           "card-hover": "#111c30",
-          surface: "#111827",
+          surface: "#111c30",
         },
         border: {
           DEFAULT: "#1e293b",

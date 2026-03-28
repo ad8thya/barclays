@@ -1,223 +1,132 @@
 "use client";
 
-import { useAnalysis } from "@/context/AnalysisContext";
-import LayerCard from "@/components/LayerCard";
-import SignalTag from "@/components/SignalTag";
+import { useAnalysisContext } from "@/context/AnalysisContext";
+import LayerCard from "@/components/analysis/LayerCard";
+import EmptyState from "@/components/shared/EmptyState";
+import { Mail, Globe, Paperclip, Mic, BarChart3 } from "lucide-react";
 
 const LAYERS = [
-  { key: "email",      icon: "✉",  title: "Email",      weight: 35 },
-  { key: "website",    icon: "🌐", title: "Website",    weight: 25 },
-  { key: "attachment", icon: "📎", title: "Attachment", weight: 15 },
-  { key: "audio",      icon: "🎙", title: "Audio",      weight: 15 },
+  { key: "email", Icon: Mail, title: "Email Phishing", weight: 40 },
+  { key: "website", Icon: Globe, title: "Website Spoofing", weight: 30 },
+  { key: "attachment", Icon: Paperclip, title: "Attachment OCR", weight: 20 },
+  { key: "audio", Icon: Mic, title: "Voice Analysis", weight: 10 },
 ];
 
 export default function AnalysisPage() {
-  const { emailResult, websiteResult, attachmentResult, audioResult, analyzing } = useAnalysis();
+  const { layerResults, analysisStatus } = useAnalysisContext();
 
-  const resultMap = {
-    email:      emailResult,
-    website:    websiteResult,
-    attachment: attachmentResult,
-    audio:      audioResult,
-  };
+  function getScore(key) {
+    const data = layerResults[key]?.data;
+    if (!data) return null;
+    if (key === "website") {
+      if (data.final_score != null) return data.final_score / 100;
+      if (data.risk_score != null) return data.risk_score;
+      return null;
+    }
+    return data.risk_score ?? null;
+  }
+
+  function getFlags(key) {
+    const data = layerResults[key]?.data;
+    if (!data) return [];
+    const flags = [];
+
+    if (key === "email") {
+      if (data.signals) {
+        Object.entries(data.signals).forEach(([k, v]) => {
+          if (v === true) flags.push(k.replace(/_/g, " "));
+        });
+      }
+      if (data.flagged_phrases) {
+        data.flagged_phrases.forEach((p) => flags.push(`"${p}"`));
+      }
+    }
+    if (key === "website") {
+      const d = data;
+      if (d.typosquatting?.is_suspicious) flags.push("Typosquatting detected");
+      if (d.domain_age?.is_new_domain) flags.push(`New domain: ${d.domain_age.domain_age_days}d`);
+      if (d.overlays?.fake_login_overlay) flags.push("Fake login overlay");
+      if (d.dns?.fast_flux_suspected) flags.push("Fast-flux DNS");
+      if (d.prompt_injection?.has_issues) flags.push("Prompt injection");
+    }
+    if (key === "attachment" && data.flags) {
+      data.flags.forEach((f) => flags.push(f));
+    }
+    return flags;
+  }
+
+  function getReason(key) {
+    const data = layerResults[key]?.data;
+    if (!data) return "";
+    if (key === "website") {
+      const raw = data.ai_analysis || "";
+      const line = raw.split("\n").find((l) => l.trim().toUpperCase().startsWith("REASON:"));
+      return line ? line.replace(/^reason:/i, "").trim() : "";
+    }
+    if (key === "attachment") return data.reason || "";
+    return "";
+  }
+
+  if (analysisStatus === "idle") {
+    return (
+      <div className="max-w-[1280px] mx-auto px-6 lg:px-10 py-8">
+        <EmptyState
+          icon={BarChart3}
+          title="No analysis yet"
+          message="Submit data on the Input page to see layer-by-layer results."
+        />
+      </div>
+    );
+  }
 
   return (
-    <>
+    <div className="max-w-[1280px] mx-auto px-6 lg:px-10 py-8">
+      {/* Header */}
       <div className="mb-8">
-        <h2 className="text-lg font-semibold tracking-tight text-slate-100">Module Breakdown</h2>
+        <h2 className="text-lg font-medium tracking-tight text-slate-100">
+          Layer-by-Layer Analysis
+        </h2>
         <p className="text-sm text-slate-500 mt-0.5">
-          Raw output per analyzer — before score fusion
+          Independent risk assessment per detection layer — before score fusion
         </p>
       </div>
 
+      {/* 2x2 grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {LAYERS.map((layer, idx) => {
-          const data = resultMap[layer.key];
-
-          const score =
-            layer.key === "website"
-              ? (data?.final_score != null ? data.final_score / 100 : data?.risk_score ?? null)
-              : (data?.risk_score ?? null);
+          const result = layerResults[layer.key];
+          const status = result?.status || "pending";
 
           return (
             <div
               key={layer.key}
               style={{
                 opacity: 0,
-                animation: `fadeSlideIn 0.3s ease forwards`,
-                animationDelay: `${idx * 120}ms`,
+                animation: `slideUp 0.3s ease forwards`,
+                animationDelay: `${idx * 150}ms`,
               }}
             >
               <LayerCard
-                icon={layer.icon}
+                icon={layer.Icon}
                 title={layer.title}
                 weight={layer.weight}
-                status={analyzing ? "running" : data ? "complete" : "pending"}
-                score={score}
-              >
-                {layer.key === "website" && data
-                  ? <WebsiteBreakdown data={data} />
-                  : <DefaultBreakdown layer={layer} data={data} />
-                }
-              </LayerCard>
+                status={status}
+                score={getScore(layer.key)}
+                flags={getFlags(layer.key)}
+                reason={getReason(layer.key)}
+                error={result?.error}
+              />
             </div>
           );
         })}
       </div>
 
       <style>{`
-        @keyframes fadeSlideIn {
-          from { opacity: 0; transform: translateY(8px); }
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateY(12px); }
           to   { opacity: 1; transform: translateY(0); }
         }
       `}</style>
-    </>
-  );
-}
-
-/* ── Website card ── */
-function WebsiteBreakdown({ data }) {
-  const finalScore = data.final_score ?? null;
-  const finalRisk  = data.final_risk  ?? data.risk ?? "—";
-  const confidence = data.confidence  ?? null;
-  const typo       = data.typosquatting || {};
-  const age        = data.domain_age    || {};
-  const inject     = data.prompt_injection || {};
-
-  const flags = [
-    typo.is_suspicious        && `Typosquatting: ${typo.verdict} → ${typo.closest_legit_domain || "?"}`,
-    age.is_new_domain         && `New domain: ${age.domain_age_days ?? "?"}d old`,
-    data.overlays?.fake_login_overlay && "Fake login overlay",
-    data.dns?.fast_flux_suspected     && "Fast-flux DNS",
-    inject.has_issues                 && "Prompt injection payload",
-    data.dynamic?.suspicious_requests?.length > 0
-      && `${data.dynamic.suspicious_requests.length} suspicious request(s)`,
-  ].filter(Boolean);
-
-  const riskColor =
-    finalRisk === "HIGH"   ? "#ef4444" :
-    finalRisk === "MEDIUM" ? "#f59e0b" : "#10b981";
-
-  const llmRaw = data.ai_analysis || "";
-  const reasonLine = llmRaw
-    .split("\n")
-    .find((l) => l.trim().toUpperCase().startsWith("REASON:"));
-  const llmReason = reasonLine
-    ? reasonLine.replace(/^reason:/i, "").trim()
-    : llmRaw.split("\n").find((l) => l.trim() && !l.match(/^(RISK|CONFIDENCE):/i))?.trim() || "";
-
-  return (
-    <div className="mt-2 space-y-3">
-      <div className="flex items-center gap-2 flex-wrap">
-        {finalScore != null && (
-          <span
-            className="text-[12px] font-mono font-bold px-2 py-0.5 rounded"
-            style={{ color: riskColor, background: riskColor + "18", border: `1px solid ${riskColor}35` }}
-          >
-            {finalScore}/100
-          </span>
-        )}
-        <span
-          className="text-[10px] uppercase tracking-widest font-semibold"
-          style={{ color: riskColor }}
-        >
-          {finalRisk}
-        </span>
-        {confidence != null && (
-          <span className="text-[10px] text-slate-600 font-mono ml-auto">
-            {confidence}% confidence
-          </span>
-        )}
-      </div>
-
-      {llmReason && (
-        <p className="text-[11px] text-slate-400 font-mono leading-relaxed border-l-2 border-slate-700 pl-2.5">
-          {llmReason}
-        </p>
-      )}
-
-      {flags.length > 0 && (
-        <div className="pt-2 border-t border-white/[0.05] flex flex-col gap-1">
-          {flags.map((f, i) => (
-            <div key={i} className="flex items-start gap-2 text-[11px]">
-              <span className="text-red-500 select-none flex-shrink-0 mt-0.5">–</span>
-              <span className="text-slate-400">{f}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
-}
-
-/* ── Email / attachment / audio cards ── */
-function DefaultBreakdown({ layer, data }) {
-  if (!data) return null;
-
-  const signals = data.signals
-    ? Object.entries(data.signals).filter(
-        ([, v]) => v === true || typeof v === "number" || (typeof v === "string" && v)
-      )
-    : [];
-
-  return (
-    <div className="mt-1 space-y-2">
-      {signals.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {signals.map(([key, val]) =>
-            val === true
-              ? <SignalTag key={key} label={formatKey(key)} danger />
-              : <SignalTag key={key} label={`${formatKey(key)}: ${val}`} />
-          )}
-        </div>
-      )}
-
-      {layer.key === "email" && data.flagged_phrases?.length > 0 && (
-        <div className="pt-2 border-t border-white/[0.05]">
-          <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1.5">
-            Flagged phrases
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {data.flagged_phrases.map((p, i) => (
-              <span
-                key={i}
-                className="text-[11px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-mono"
-              >
-                &ldquo;{p}&rdquo;
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {layer.key === "attachment" && data.flags?.length > 0 && (
-        <div className="pt-2 border-t border-white/[0.05]">
-          <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1.5">
-            Flags
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {data.flags.map((f, i) => (
-              <span
-                key={i}
-                className="text-[11px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-mono"
-              >
-                {f}
-              </span>
-            ))}
-          </div>
-          {data.reason && (
-            <p className="text-[11px] text-slate-500 mt-2 italic">{data.reason}</p>
-          )}
-        </div>
-      )}
-
-      {layer.key === "audio" && (
-        <p className="text-[11px] text-slate-600 italic">Not available in this build</p>
-      )}
-    </div>
-  );
-}
-
-function formatKey(k) {
-  return k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }

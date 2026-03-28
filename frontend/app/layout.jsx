@@ -1,7 +1,6 @@
 import "./globals.css";
 import { AnalysisProvider } from "@/context/AnalysisContext";
-import Navbar from "@/components/Navbar";
-import OOBModal from "@/components/OOBModal";
+import Navbar from "@/components/layout/Navbar";
 
 export const metadata = {
   title: "CrossShield — Fraud Intelligence Platform",
@@ -11,20 +10,14 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className="min-h-screen font-sans antialiased relative">
+      <body className="min-h-screen font-sans antialiased" style={{ background: "#080d1a", color: "#e2e8f0" }}>
         <AnalysisProvider>
-          {/* Ambient animated background */}
-          <div className="ambient-bg" />
-
-          {/* App shell */}
-          <div className="relative z-10 flex flex-col min-h-screen">
+          <div className="relative min-h-screen flex flex-col">
             <Navbar />
-            <main className="flex-1 w-full max-w-[1280px] mx-auto px-6 lg:px-10 py-8">
+            <main className="flex-1">
               {children}
             </main>
           </div>
-
-          <OOBModal />
         </AnalysisProvider>
       </body>
     </html>
