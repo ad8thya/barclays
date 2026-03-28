@@ -67,12 +67,15 @@ export default function InputPage() {
     const audioRes = results[3].status === "fulfilled" ? results[3].value : null;
 
     const emailScore = emailRes?.success ? (emailRes.data?.risk_score || 0) : 0;
+
+
     let webScore = 0;
-    if (webRes?.success && webRes.data) {
-      webScore = webRes.data.risk_score || 0;
-    } else if (webRes?.final_score != null) {
-      webScore = webRes.final_score / 100;
-    }
+  if (webRes?.success && webRes.data) {
+    const wd = webRes.data;
+    webScore = wd.final_score != null
+      ? wd.final_score / 100
+      : (wd.risk_score || 0);
+  }
     const attachScore = attachRes?.success ? (attachRes.data?.risk_score || 0) : 0;
     const audioScore = audioRes?.success ? (audioRes.data?.risk_score || 0) : 0;
 
