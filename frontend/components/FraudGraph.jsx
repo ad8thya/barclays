@@ -248,6 +248,11 @@ function renderGraph(d3, container, graphData) {
     });
 
   simulation.on("tick", () => {
+      // Clamp nodes within bounds
+    nodes.forEach((d) => {
+      d.x = Math.max(40, Math.min(width - 40, d.x));
+      d.y = Math.max(40, Math.min(height - 40, d.y));
+    });
     link
       .attr("x1", (d) => d.source.x)
       .attr("y1", (d) => d.source.y)
