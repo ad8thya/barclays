@@ -77,8 +77,8 @@ export function useAnalysis() {
       } else if (webRes?.final_score != null) {
         webScore = webRes.final_score / 100;
       }
-      const attachScore = attachRes?.success ? (attachRes.data?.risk_score || 0) : 0;
-      const audioScore = audioRes?.success ? (audioRes.data?.risk_score || 0) : 0;
+      const attachScore = attachRes?.success ? (attachRes.data?.risk_score || 0) : (file ? 0 : null);
+      const audioScore = audioRes?.success ? (audioRes.data?.risk_score || 0) : (audio ? 0 : null);
 
       // Extract domains
       const domains = [];
@@ -96,6 +96,8 @@ export function useAnalysis() {
           audio_score: audioScore,
           domains: domains,
           ips: [],
+          website_suspicious: webRes?.data?.typosquatting?.is_suspicious === true ||
+            (webRes?.data?.final_risk === "HIGH" && webRes?.data?.score > 60),
         });
 
         if (scoreRes?.success && scoreRes.data) {

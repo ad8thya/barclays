@@ -2,7 +2,7 @@ import sqlite3
 
 from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from services.graph_service import store_incident, find_correlated_incidents, get_graph_score, build_graph
 from services.oob_service import build_oob_notification, store_oob_event
 
@@ -13,8 +13,8 @@ class ScoreRequest(BaseModel):
     account_id: str
     email_score: float
     website_score: float
-    attachment_score: float
-    audio_score: float
+    attachment_score: Optional[float] = None
+    audio_score: Optional[float] = None
     domains: List[str] = []
     ips: List[str] = []
     website_suspicious: bool = False 
@@ -33,8 +33,8 @@ async def analyze_score(req: ScoreRequest):
     scores = {
         "email": req.email_score,
         "website": req.website_score,
-        "attachment": req.attachment_score,
-        "audio": req.audio_score,
+        "attachment": req.attachment_score if req.attachment_score is not None else 0.0,
+        "audio": req.audio_score if req.audio_score is not None else 0.0,
         "final": 0.0  # placeholder, updated below
     }
     store_incident(req.incident_id, req.account_id, scores, signals)
@@ -43,10 +43,29 @@ async def analyze_score(req: ScoreRequest):
     graph_score = get_graph_score(req.incident_id)
     graph_data = find_correlated_incidents(req.incident_id)
 
-    # Step 3 - calculate frs with real graph score
-    frs = (0.35 * req.email_score + 0.25 * req.website_score +
-           0.15 * req.attachment_score + 0.15 * req.audio_score +
-           0.10 * graph_score)
+    # Step 3 - calculate frs with normalized weights
+    # Base weights for each layer
+    base_weights = {
+        "email": 0.35,
+        "website": 0.25,
+        "attachment": 0.15,
+        "audio": 0.15,
+        "graph": 0.10,
+    }
+    # Determine which layers are active (provided, not None)
+    layer_values = {
+        "email": req.email_score,
+        "website": req.website_score,
+        "attachment": req.attachment_score,  # None if not provided
+        "audio": req.audio_score,            # None if not provided
+        "graph": graph_score,                # always present
+    }
+    active_layers = {k: v for k, v in layer_values.items() if v is not None}
+    active_weight_sum = sum(base_weights[k] for k in active_layers)
+    # Normalize: redistribute missing weight proportionally to active layers
+    norm_weights = {k: base_weights[k] / active_weight_sum for k in active_layers}
+
+    frs = sum(norm_weights[k] * active_layers[k] for k in active_layers)
 
     # Step 4 - update final score in DB
     conn = sqlite3.connect("fraud_graph.db")
@@ -56,18 +75,15 @@ async def analyze_score(req: ScoreRequest):
     conn.close()
 
     score_breakdown = {
-        "email_contribution":      round(0.35 * req.email_score, 3),
-        "website_contribution":    round(0.25 * req.website_score, 3),
-        "attachment_contribution": round(0.15 * req.attachment_score, 3),
-        "audio_contribution":      round(0.15 * req.audio_score, 3),
-        "graph_contribution":      round(0.10 * graph_score, 3)
+        f"{k}_contribution": round(norm_weights[k] * active_layers[k], 3)
+        for k in active_layers
     }
 
     layer_scores = {
         "email": req.email_score,
         "website": req.website_score,
-        "attachment": req.attachment_score,
-        "audio": req.audio_score,
+        "attachment": req.attachment_score if req.attachment_score is not None else 0.0,
+        "audio": req.audio_score if req.audio_score is not None else 0.0,
     }
 
     oob_triggered = frs > 0.60
