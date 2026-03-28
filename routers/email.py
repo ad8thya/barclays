@@ -12,7 +12,11 @@ _model_dir = os.path.abspath(
 )
 sys.path.insert(0, _model_dir)
 
-from email_utils.features import extract_meta, extract_signals, extract_flagged
+from services.email_model.utils.features import (
+    extract_meta,
+    extract_signals,
+    extract_flagged
+)
 
 router = APIRouter()
 
@@ -31,6 +35,7 @@ class EmailRequest(BaseModel):
 @router.post("/analyze/email")
 async def analyze_email(req: EmailRequest):
     try:
+        print("working right")
         text  = f"{req.subject} {req.body}"
         tfidf = _vectorizer.transform([text])
         meta  = extract_meta(text)
@@ -65,7 +70,7 @@ async def analyze_email(req: EmailRequest):
 def _fallback(req, error_msg):
     score, signals, flagged = 0.0, {}, []
     text = (req.subject + " " + req.body).lower()
-
+    print("debug check")
     urgency = ["urgent", "immediately", "verify", "suspended",
                "click here", "confirm your", "unusual activity", "account locked"]
     found = [p for p in urgency if p in text]
