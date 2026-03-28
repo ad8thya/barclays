@@ -20,9 +20,7 @@ init_oob_table()
 
 app.include_router(score.router)
 app.include_router(email.router)
-
 app.include_router(website.router, tags=["Website"])
-
 app.include_router(attachments.router)
 app.include_router(explain.router)
 app.include_router(audio.router)
