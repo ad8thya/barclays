@@ -17,6 +17,8 @@ frontend/build/
 __pycache__/
 *.py[cod]
 
+*.pyc
+
 # Virtual env (if you use one later)
 venv/
 .env/
