@@ -1,6 +1,6 @@
 from urllib.parse import urljoin, urlparse
 from services.js_analysis_service import analyze_js_semantics
-from services.llm_service import analyze_with_llm
+from services.llm_service import analyze_with_llm, parse_llm_risk
 from services.sandbox_service import run_sandbox
 import requests
  
@@ -60,7 +60,12 @@ def analyze_website(url: str):
         except Exception:
             continue
  
-    # ── Features for LLM ─────────────────────────────────────────
+# ── Features for LLM (expanded) ──────────────────────────────
+    domain_age_data = sandbox_data.get("domain_age", {})
+    dns_data        = sandbox_data.get("dns", {})
+    header_data     = sandbox_data.get("security_headers", {})
+    injection_data  = sandbox_data.get("prompt_injection", {})
+
     features = {
         "url": url,
         "domain": domain,
@@ -82,12 +87,21 @@ def analyze_website(url: str):
         "inline_js_issues": len(overlays.get("inline_js_issues", [])),
         "dynamic_suspicious_requests": len(dynamic.get("suspicious_requests", [])),
         "dynamic_storage_writes": len(dynamic.get("storage_writes", [])),
+        # New signals
+        "domain_age_days": domain_age_data.get("domain_age_days"),
+        "is_new_domain": domain_age_data.get("is_new_domain", False),
+        "has_spf": dns_data.get("has_spf", True),
+        "has_dmarc": dns_data.get("has_dmarc", True),
+        "fast_flux_suspected": dns_data.get("fast_flux_suspected", False),
+        "missing_security_headers": header_data.get("headers_missing", []),
+        "prompt_injection_detected": injection_data.get("has_issues", False),
+        "prompt_injection_count": len(injection_data.get("injections_found", [])),
     }
- 
-    # ── Heuristic scoring ─────────────────────────────────────────
+
+    # ── Heuristic scoring (expanded) ─────────────────────────────
     risk_score = 0
     reasons = []
- 
+
     if features["has_suspicious_keywords"]:
         risk_score += 25
         reasons.append("Suspicious keywords in URL")
@@ -115,20 +129,27 @@ def analyze_website(url: str):
     if redirects > 2:
         risk_score += 10
         reasons.append("Multiple redirects")
- 
-    # ── Blend enhanced sandbox signals into heuristic ─────────────
+
+    # ── Blend enhanced sandbox signals ───────────────────────────
     extra_risk = sandbox_data.get("extra_risk_score", 0)
     extra_reasons = sandbox_data.get("extra_risk_reasons", [])
     risk_score = int(risk_score * 0.6 + extra_risk * 0.4)
     reasons.extend(extra_reasons)
- 
-    # Hard floors for confirmed high-severity patterns
+
+    # ── Hard floors (expanded) ────────────────────────────────────
     if typo.get("verdict") in ("EXACT_SPOOF", "BRAND_IN_SUBDOMAIN"):
         risk_score = max(risk_score, 80)
     if overlays.get("fake_login_overlay"):
         risk_score = max(risk_score, 75)
     if dynamic.get("dynamic_risk_score", 0) >= 60:
         risk_score = max(risk_score, 70)
+    # New hard floors
+    if domain_age_data.get("domain_age_days") is not None and domain_age_data["domain_age_days"] < 7:
+        risk_score = max(risk_score, 75)
+    if injection_data.get("prompt_injection_risk_score", 0) >= 40:
+        risk_score = max(risk_score, 70)
+    if dns_data.get("fast_flux_suspected"):
+        risk_score = max(risk_score, 65)
  
     if risk_score < 30:
         risk = "LOW"
@@ -139,33 +160,36 @@ def analyze_website(url: str):
  
     # ── LLM analysis ─────────────────────────────────────────────
     llm_risk = "UNKNOWN"
+    llm_confidence = 50
     ai_analysis = "LLM analysis skipped"
     try:
-        ai_analysis = analyze_with_llm(features)
-        al = ai_analysis.lower()
-        if "high" in al:
-            llm_risk = "HIGH"
-        elif "medium" in al:
-            llm_risk = "MEDIUM"
-        elif "low" in al:
-            llm_risk = "LOW"
+        raw_response = analyze_with_llm(features)
+        ai_analysis = raw_response
+        llm_risk, llm_confidence = parse_llm_risk(raw_response)
     except Exception as e:
         print("LLM ERROR:", e)
-        # Rule-based fallback when Ollama offline
-        if risk_score >= 60 or typo.get("is_suspicious") or overlays.get("fake_login_overlay"):
+        # Calibrated rule-based fallback
+        combined_risk = (
+            risk_score
+            + domain_age_data.get("risk_score", 0) * 0.3
+            + dns_data.get("risk_score", 0) * 0.2
+            + injection_data.get("prompt_injection_risk_score", 0) * 0.3
+        )
+        if combined_risk >= 60 or typo.get("is_suspicious") or overlays.get("fake_login_overlay"):
             llm_risk = "HIGH"
             ai_analysis = (
-                f"[Fallback] Score {risk_score}, typosquat verdict: "
-                f"{typo.get('verdict','N/A')}, overlay risk: "
-                f"{overlays.get('overlay_risk_score', 0)}, "
-                f"dynamic risk: {dynamic.get('dynamic_risk_score', 0)}."
+                f"[Fallback] Heuristic score {risk_score}, typosquat: "
+                f"{typo.get('verdict','N/A')}, domain age: "
+                f"{domain_age_data.get('domain_age_days', 'unknown')}d, "
+                f"injection risk: {injection_data.get('prompt_injection_risk_score', 0)}, "
+                f"DNS risk: {dns_data.get('risk_score', 0)}."
             )
-        elif risk_score >= 30:
+        elif combined_risk >= 30:
             llm_risk = "MEDIUM"
-            ai_analysis = f"[Fallback] Moderate risk indicators. Score: {risk_score}."
+            ai_analysis = f"[Fallback] Moderate indicators. Composite score: {combined_risk:.0f}."
         else:
             llm_risk = "LOW"
-            ai_analysis = f"[Fallback] Low risk profile. Score: {risk_score}."
+            ai_analysis = f"[Fallback] Low risk profile. Composite score: {combined_risk:.0f}."
  
     # ── JS analysis ───────────────────────────────────────────────
     js_risk = "LOW"
@@ -253,21 +277,27 @@ def analyze_website(url: str):
             "external_links": sandbox_data["external_links_count"],
         },
         "typosquatting": typo,
-        "cookies":       sandbox_data.get("cookies", {}),
-        "overlays":      overlays,
-        "dynamic":       dynamic,
- 
-        "risk":          risk,
-        "score":         risk_score,
-        "llm_risk":      llm_risk,
-        "js_risk":       js_risk,
-        "confidence":    confidence,
-        "disagreement":  disagreement,
-        "final_score":   final_score,
-        "final_risk":    final_risk,
-        "reasons":       reasons,
-        "ai_analysis":   ai_analysis,
-        "js_analysis":   js_analysis,
+        "cookies":         sandbox_data.get("cookies", {}),
+        "overlays":        overlays,
+        "dynamic":         dynamic,
+        # New sections
+        "security_headers": sandbox_data.get("security_headers", {}),
+        "domain_age":       sandbox_data.get("domain_age", {}),
+        "dns":              sandbox_data.get("dns", {}),
+        "prompt_injection": sandbox_data.get("prompt_injection", {}),
+        "fingerprint":      sandbox_data.get("fingerprint", {}),
+
+        "risk":         risk,
+        "score":        risk_score,
+        "llm_risk":     llm_risk,
+        "js_risk":      js_risk,
+        "confidence":   confidence,
+        "disagreement": disagreement,
+        "final_score":  final_score,
+        "final_risk":   final_risk,
+        "reasons":      reasons,
+        "ai_analysis":  ai_analysis,
+        "js_analysis":  js_analysis,
     })
  
     return result
