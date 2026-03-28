@@ -1,81 +1,160 @@
+# services/website_service.py
+"""
+Website analysis service.
+
+Scoring philosophy:
+- Heuristic score: URL/content signals, 0–100, with per-signal weights
+  calibrated so a legitimate site (Google, HSBC) stays well below 40.
+- extra_risk_score from sandbox: already a weighted blend (0–100).
+- LLM score and JS score: mapped to 0–100.
+- Final score: weighted blend of all four — not additive stacking.
+
+Legitimate site target: final_score < 30 (LOW).
+Clear phishing site target: final_score > 65 (HIGH).
+"""
+
 from urllib.parse import urljoin, urlparse
+
+import requests
+
 from services.js_analysis_service import analyze_js_semantics
 from services.llm_service import analyze_with_llm, parse_llm_risk
-from services.sandbox_service import run_sandbox
-import requests
- 
- 
-def analyze_website(url: str):
+from services.sandbox_service import run_sandbox, _is_trusted
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HEURISTIC SCORING
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Weights are chosen so that a typical legitimate site accumulates < 35 points
+# and a typical phishing site accumulates > 60 points — BEFORE blending with
+# the sandbox sub-scores.
+#
+# Rule of thumb for weights:
+#   - Signal is near-certain phishing indicator:  25–35
+#   - Signal is suspicious but common on legit:   10–20
+#   - Signal is weak / contextual:                5–10
+
+_HEURISTIC_RULES = [
+    # (condition_fn, weight, label)
+    # High-confidence
+    (lambda f: "@" in f["url"],                                                          35, "@ symbol in URL"),
+    (lambda f: f["typosquatting_verdict"] in ("EXACT_SPOOF", "BRAND_IN_SUBDOMAIN"),      0,  ""),  # handled by hard floor
+    (lambda f: f["fake_login_overlay"],                                                  30, "Fake login overlay"),
+    (lambda f: f["inline_js_issues"] >= 3,                                               25, "Multiple suspicious inline JS patterns"),
+    # Medium-confidence
+    (lambda f: not f["uses_https"],                                                      20, "Not using HTTPS"),
+    (lambda f: f["has_password_field"] and not f["uses_https"],                          20, "Password field on HTTP page"),
+    (lambda f: f["is_new_domain"],                                                       0,  ""),  # handled by domain_age sub-score
+    (lambda f: f["has_suspicious_keywords"] and f["has_password_field"],                 20, "Suspicious keywords + password field"),
+    (lambda f: f["has_suspicious_keywords"] and not f["has_password_field"],             10, "Suspicious keywords in URL"),
+    (lambda f: f["url_length"] > 100,                                                    15, "Very long URL (>100 chars)"),
+    (lambda f: 75 < f["url_length"] <= 100,                                               8, "Long URL (>75 chars)"),
+    (lambda f: f["url"].count(".") > 4,                                                  15, "Excessive subdomains"),
+    (lambda f: f["redirects"] > 3,                                                       12, "Many redirects (>3)"),
+    (lambda f: f["redirects"] == 3,                                                       6, "Several redirects"),
+    # Low-confidence (only add if combined with other signals via weighting)
+    (lambda f: f["has_password_field"] and f["uses_https"],                               8, "Password field (HTTPS — normal for login pages)"),
+    (lambda f: f["num_forms"] > 0 and not f["has_password_field"],                        4, "Form without password field"),
+    (lambda f: f["prompt_injection_detected"],                                            20, "Prompt injection payload in page"),
+    (lambda f: f["fast_flux_suspected"],                                                  20, "Fast-flux DNS detected"),
+]
+
+
+def _compute_heuristic_score(features: dict) -> tuple[int, list[str]]:
+    """Returns (0–100 score, list of reason strings)."""
+    score = 0
+    reasons = []
+    for condition, weight, label in _HEURISTIC_RULES:
+        try:
+            if weight > 0 and condition(features):
+                score += weight
+                if label:
+                    reasons.append(label)
+        except Exception:
+            continue
+    return min(score, 100), reasons
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAIN ANALYSER
+# ─────────────────────────────────────────────────────────────────────────────
+
+def analyze_website(url: str) -> dict:
     result = {}
- 
+
     if not url.startswith("http"):
         url = "http://" + url
- 
+
     parsed = urlparse(url)
     domain = parsed.netloc.lower()
     result["domain"] = domain
- 
-    # ── Run enhanced sandbox ──────────────────────────────────────
+
+    trusted = _is_trusted(domain)
+
+    # ── Run sandbox ───────────────────────────────────────────────
     sandbox_data = run_sandbox(url)
- 
+
     if not sandbox_data.get("reachable"):
         return {
             "domain": domain,
             "status_code": None,
             "reachable": False,
             "risk": "HIGH",
-            "score": 90,
-            "final_score": 90,
+            "score": 85,
+            "final_score": 85,
             "final_risk": "HIGH",
-            "confidence": 80,
+            "confidence": 70,
             "reasons": ["Website not reachable"],
-            "ai_analysis": "Site unreachable",
+            "ai_analysis": "Site unreachable — treating as high risk",
             "js_analysis": "No JS analysis",
+            "sandbox": {},
             "typosquatting": {},
             "cookies": {},
             "overlays": {},
             "dynamic": {},
         }
- 
+
     result["status_code"] = sandbox_data["status_code"]
     result["reachable"] = True
- 
-    forms        = sandbox_data["num_forms"]
-    password_field = sandbox_data["has_password_field"]
+
+    forms           = sandbox_data["num_forms"]
+    password_field  = sandbox_data["has_password_field"]
     external_scripts = sandbox_data["external_scripts"]
-    redirects    = sandbox_data["redirect_count"]
-    uses_https   = sandbox_data["uses_https"]
-    typo         = sandbox_data.get("typosquatting", {})
-    overlays     = sandbox_data.get("overlays", {})
-    dynamic      = sandbox_data.get("dynamic", {})
- 
-    # ── Fetch JS content ──────────────────────────────────────────
-    # FIX: use scripts_to_fetch (external + same-origin) not just external
-    js_contents = []
-    for script_src in sandbox_data.get("scripts_to_fetch", []):
-        try:
-            full_url = urljoin(url, script_src)
-            js_res = requests.get(full_url, timeout=3)
-            js_contents.append(js_res.text[:2000])
-        except Exception:
-            continue
- 
-# ── Features for LLM (expanded) ──────────────────────────────
+    redirects       = sandbox_data["redirect_count"]
+    uses_https      = sandbox_data["uses_https"]
+    typo            = sandbox_data.get("typosquatting", {})
+    overlays        = sandbox_data.get("overlays", {})
+    dynamic         = sandbox_data.get("dynamic", {})
     domain_age_data = sandbox_data.get("domain_age", {})
     dns_data        = sandbox_data.get("dns", {})
     header_data     = sandbox_data.get("security_headers", {})
     injection_data  = sandbox_data.get("prompt_injection", {})
 
+    # ── Fetch JS content ──────────────────────────────────────────
+    js_contents = []
+    for script_src in sandbox_data.get("scripts_to_fetch", []):
+        try:
+            full_url = urljoin(url, script_src)
+            js_res = requests.get(full_url, timeout=3,
+                                  headers={"User-Agent": "Mozilla/5.0"})
+            js_contents.append(js_res.text[:2000])
+        except Exception:
+            continue
+
+    # ── Build feature dict for heuristics + LLM ──────────────────
     features = {
         "url": url,
         "domain": domain,
+        "trusted": trusted,
         "has_password_field": password_field,
         "num_forms": forms,
         "external_scripts": len(external_scripts),
         "uses_https": uses_https,
         "url_length": len(url),
         "has_suspicious_keywords": any(
-            word in url.lower() for word in ["login", "verify", "secure", "account"]
+            word in url.lower()
+            for word in ["login", "verify", "secure", "account", "update", "confirm"]
         ),
         "redirects": redirects,
         "typosquatting_verdict": typo.get("verdict", "NO_MATCH"),
@@ -87,7 +166,6 @@ def analyze_website(url: str):
         "inline_js_issues": len(overlays.get("inline_js_issues", [])),
         "dynamic_suspicious_requests": len(dynamic.get("suspicious_requests", [])),
         "dynamic_storage_writes": len(dynamic.get("storage_writes", [])),
-        # New signals
         "domain_age_days": domain_age_data.get("domain_age_days"),
         "is_new_domain": domain_age_data.get("is_new_domain", False),
         "has_spf": dns_data.get("has_spf", True),
@@ -98,99 +176,51 @@ def analyze_website(url: str):
         "prompt_injection_count": len(injection_data.get("injections_found", [])),
     }
 
-    # ── Heuristic scoring (expanded) ─────────────────────────────
-    risk_score = 0
-    reasons = []
+    # ── Heuristic score ───────────────────────────────────────────
+    heuristic_score, heuristic_reasons = _compute_heuristic_score(features)
 
-    if features["has_suspicious_keywords"]:
-        risk_score += 25
-        reasons.append("Suspicious keywords in URL")
-    if domain.count(".") > 3:
-        risk_score += 15
-        reasons.append("Too many subdomains")
-    if len(url) > 75:
-        risk_score += 10
-        reasons.append("URL too long")
-    if "@" in url:
-        risk_score += 30
-        reasons.append("Contains @ symbol in URL")
-    if not uses_https:
-        risk_score += 15
-        reasons.append("Not using HTTPS")
-    if forms > 0:
-        risk_score += 15
-        reasons.append("Contains form (possible login page)")
-    if password_field:
-        risk_score += 20
-        reasons.append("Password field detected")
-    if len(external_scripts) > 3:
-        risk_score += 10
-        reasons.append("Multiple external scripts")
-    if redirects > 2:
-        risk_score += 10
-        reasons.append("Multiple redirects")
+    # Trusted domains get a heuristic ceiling — we trust our list, not the URL signals
+    if trusted:
+        heuristic_score = min(heuristic_score, 20)
 
-    # ── Blend enhanced sandbox signals ───────────────────────────
+    # ── Sandbox extra_risk_score (already a weighted blend 0–100) ─
     extra_risk = sandbox_data.get("extra_risk_score", 0)
     extra_reasons = sandbox_data.get("extra_risk_reasons", [])
-    risk_score = int(risk_score * 0.6 + extra_risk * 0.4)
-    reasons.extend(extra_reasons)
 
-    # ── Hard floors (expanded) ────────────────────────────────────
-    if typo.get("verdict") in ("EXACT_SPOOF", "BRAND_IN_SUBDOMAIN"):
-        risk_score = max(risk_score, 80)
-    if overlays.get("fake_login_overlay"):
-        risk_score = max(risk_score, 75)
-    if dynamic.get("dynamic_risk_score", 0) >= 60:
-        risk_score = max(risk_score, 70)
-    # New hard floors
-    if domain_age_data.get("domain_age_days") is not None and domain_age_data["domain_age_days"] < 7:
-        risk_score = max(risk_score, 75)
-    if injection_data.get("prompt_injection_risk_score", 0) >= 40:
-        risk_score = max(risk_score, 70)
-    if dns_data.get("fast_flux_suspected"):
-        risk_score = max(risk_score, 65)
- 
-    if risk_score < 30:
-        risk = "LOW"
-    elif risk_score < 60:
-        risk = "MEDIUM"
-    else:
-        risk = "HIGH"
- 
-    # ── LLM analysis ─────────────────────────────────────────────
+    # Pre-fusion score: blend heuristic + sandbox signals
+    # Heuristic: 45% — direct URL/content signals
+    # Sandbox:   55% — richer sub-analyser signals
+    pre_fusion_score = int(heuristic_score * 0.45 + extra_risk * 0.55)
+
+    # ── LLM analysis ──────────────────────────────────────────────
     llm_risk = "UNKNOWN"
     llm_confidence = 50
     ai_analysis = "LLM analysis skipped"
+    is_fallback = True
+
     try:
         raw_response = analyze_with_llm(features)
         ai_analysis = raw_response
         llm_risk, llm_confidence = parse_llm_risk(raw_response)
+        is_fallback = False
     except Exception as e:
         print("LLM ERROR:", e)
-        # Calibrated rule-based fallback
-        combined_risk = (
-            risk_score
-            + domain_age_data.get("risk_score", 0) * 0.3
-            + dns_data.get("risk_score", 0) * 0.2
-            + injection_data.get("prompt_injection_risk_score", 0) * 0.3
-        )
-        if combined_risk >= 60 or typo.get("is_suspicious") or overlays.get("fake_login_overlay"):
+        # Calibrated fallback — mirror pre_fusion_score
+        if pre_fusion_score >= 60 or typo.get("is_suspicious") or overlays.get("fake_login_overlay"):
             llm_risk = "HIGH"
             ai_analysis = (
-                f"[Fallback] Heuristic score {risk_score}, typosquat: "
-                f"{typo.get('verdict','N/A')}, domain age: "
-                f"{domain_age_data.get('domain_age_days', 'unknown')}d, "
-                f"injection risk: {injection_data.get('prompt_injection_risk_score', 0)}, "
-                f"DNS risk: {dns_data.get('risk_score', 0)}."
+                f"[Fallback] Pre-fusion score {pre_fusion_score}, "
+                f"typosquat: {typo.get('verdict', 'N/A')}, "
+                f"domain age: {domain_age_data.get('domain_age_days', 'unknown')}d."
             )
-        elif combined_risk >= 30:
+        elif pre_fusion_score >= 30:
             llm_risk = "MEDIUM"
-            ai_analysis = f"[Fallback] Moderate indicators. Composite score: {combined_risk:.0f}."
+            ai_analysis = f"[Fallback] Moderate indicators. Pre-fusion score: {pre_fusion_score}."
         else:
             llm_risk = "LOW"
-            ai_analysis = f"[Fallback] Low risk profile. Composite score: {combined_risk:.0f}."
- 
+            ai_analysis = f"[Fallback] Low risk profile. Pre-fusion score: {pre_fusion_score}."
+        is_fallback = True
+
     # ── JS analysis ───────────────────────────────────────────────
     js_risk = "LOW"
     js_analysis = "No JS content to analyse"
@@ -198,106 +228,147 @@ def analyze_website(url: str):
         try:
             js_analysis = analyze_js_semantics(js_contents)
             jl = js_analysis.lower()
-            if "high" in jl:
-                js_risk = "HIGH"
-            elif "medium" in jl:
-                js_risk = "MEDIUM"
-            else:
-                js_risk = "LOW"
+            js_risk = "HIGH" if "high" in jl else "MEDIUM" if "medium" in jl else "LOW"
         except Exception as e:
             print("JS LLM ERROR:", e)
             js_analysis = "JS analysis failed"
     else:
-        # No external/same-origin script files, but inline JS was scanned statically
         inline_issues = overlays.get("inline_js_issues", [])
         if inline_issues:
             js_analysis = f"[Static scan] Inline JS issues: {'; '.join(inline_issues)}"
             js_risk = "HIGH" if len(inline_issues) >= 3 else "MEDIUM"
- 
-    # ── Confidence ────────────────────────────────────────────────
-    disagreement = llm_risk != "UNKNOWN" and llm_risk != risk
-    confidence = 100
- 
-    if disagreement:
-        confidence -= 20
-    if risk_score < 20:
-        confidence -= 10
-    elif risk_score > 70:
-        confidence += 5
-    if typo.get("verdict") in ("EXACT_SPOOF", "BRAND_IN_SUBDOMAIN"):
-        confidence = min(confidence + 15, 100)
-    if overlays.get("fake_login_overlay"):
-        confidence = min(confidence + 10, 100)
-    if dynamic.get("available") and dynamic.get("dynamic_risk_score", 0) >= 40:
-        confidence = min(confidence + 10, 100)
- 
-    # ── Score fusion ──────────────────────────────────────────────
-    llm_score_map = {"LOW": 20, "MEDIUM": 50, "HIGH": 80, "UNKNOWN": 50}
-    llm_score = llm_score_map.get(llm_risk, 50)
-    js_score  = llm_score_map.get(js_risk, 20)
- 
-    is_fallback = "[Fallback]" in ai_analysis
- 
+
+    # ── Final score fusion ────────────────────────────────────────
+    #
+    # Weights:
+    #   Pre-fusion (heuristic + sandbox):  60%  ← most reliable, our own signals
+    #   LLM score:                         25%  ← useful when running, fallback otherwise
+    #   JS score:                          15%  ← supporting signal
+    #
+    # When LLM is offline (fallback), shift weight to pre-fusion.
+
+    llm_score_map = {"LOW": 15, "MEDIUM": 45, "HIGH": 80, "UNKNOWN": pre_fusion_score}
+    js_score_map  = {"LOW": 10, "MEDIUM": 40, "HIGH": 75}
+
+    llm_score = llm_score_map.get(llm_risk, pre_fusion_score)
+    js_score  = js_score_map.get(js_risk, 10)
+
     if is_fallback:
-        # Ollama offline — trust heuristics + JS more
-        final_score = int(risk_score * 0.60 + js_score * 0.25 + llm_score * 0.15)
+        # LLM offline → trust our own signals more
+        final_score = int(pre_fusion_score * 0.75 + js_score * 0.25)
     else:
-        # Ollama running — balanced fusion
-        final_score = int(risk_score * 0.40 + llm_score * 0.35 + js_score * 0.25)
- 
-    if confidence < 70:
-        final_score += 5
- 
-    # Hard floor: JS analysis caught clear exfil/obfuscation
-    if js_risk == "HIGH":
-        final_score = max(final_score, 70)
- 
-    # Hard floor: dynamic analysis caught runtime exfil
+        final_score = int(pre_fusion_score * 0.60 + llm_score * 0.25 + js_score * 0.15)
+
+    # ── Hard floors — only truly definitive signals ───────────────
+    # These exist because certain combinations are near-certain phishing
+    # regardless of what other signals say.
+
+    # Near-exact domain spoof of a bank/known brand
+    if typo.get("verdict") in ("EXACT_SPOOF", "BRAND_IN_SUBDOMAIN"):
+        final_score = max(final_score, 78)
+
+    # Overlay injecting a fake password form
+    if overlays.get("fake_login_overlay"):
+        final_score = max(final_score, 72)
+
+    # Runtime exfiltration confirmed by dynamic analysis
     if dynamic.get("dynamic_risk_score", 0) >= 60:
-        final_score = max(final_score, 75)
- 
+        final_score = max(final_score, 70)
+
+    # Domain less than 7 days old
+    if domain_age_data.get("domain_age_days") is not None \
+            and domain_age_data["domain_age_days"] < 7:
+        final_score = max(final_score, 68)
+
+    # Prompt injection / content poisoning (attacker knows tools are scanning)
+    if injection_data.get("prompt_injection_risk_score", 0) >= 50:
+        final_score = max(final_score, 65)
+
+    # JS analysis confirmed exfil/keylogger
+    if js_risk == "HIGH":
+        final_score = max(final_score, 65)
+
+    # Trusted domain ceiling — don't flag google.com as HIGH
+    if trusted:
+        final_score = min(final_score, 35)
+
     final_score = min(final_score, 100)
- 
-    if final_score < 30:
+
+    # ── Risk label ────────────────────────────────────────────────
+    # Thresholds chosen so: LOW < 35, MEDIUM 35–59, HIGH ≥ 60
+    if final_score < 35:
         final_risk = "LOW"
     elif final_score < 60:
         final_risk = "MEDIUM"
     else:
         final_risk = "HIGH"
- 
-    # ── Build response ────────────────────────────────────────────
+
+    # Heuristic-only label (for comparison)
+    if heuristic_score < 35:
+        risk = "LOW"
+    elif heuristic_score < 60:
+        risk = "MEDIUM"
+    else:
+        risk = "HIGH"
+
+    # ── Confidence ────────────────────────────────────────────────
+    disagreement = llm_risk not in ("UNKNOWN",) and llm_risk != final_risk
+    confidence = 85
+
+    if is_fallback:
+        confidence -= 15
+    if disagreement:
+        confidence -= 10
+    if typo.get("verdict") in ("EXACT_SPOOF", "BRAND_IN_SUBDOMAIN"):
+        confidence = min(confidence + 10, 100)
+    if overlays.get("fake_login_overlay"):
+        confidence = min(confidence + 8, 100)
+    if dynamic.get("available") and dynamic.get("dynamic_risk_score", 0) >= 40:
+        confidence = min(confidence + 8, 100)
+    if trusted:
+        confidence = min(confidence + 10, 100)
+
+    confidence = max(confidence, 40)
+
+    # ── Assemble response ─────────────────────────────────────────
+    all_reasons = list(dict.fromkeys(heuristic_reasons + extra_reasons))
+
     result.update({
         "sandbox": {
-            "redirects": sandbox_data["redirect_count"],
-            "external_scripts": len(sandbox_data["external_scripts"]),
+            "redirects":          sandbox_data["redirect_count"],
+            "external_scripts":   len(sandbox_data["external_scripts"]),
             "same_origin_scripts": len(sandbox_data.get("same_origin_scripts", [])),
-            "forms": sandbox_data["num_forms"],
+            "forms":              sandbox_data["num_forms"],
             "has_password_field": sandbox_data["has_password_field"],
-            "uses_https": sandbox_data["uses_https"],
-            "external_links": sandbox_data["external_links_count"],
+            "uses_https":         sandbox_data["uses_https"],
+            "external_links":     sandbox_data["external_links_count"],
         },
-        "typosquatting": typo,
-        "cookies":         sandbox_data.get("cookies", {}),
-        "overlays":        overlays,
-        "dynamic":         dynamic,
-        # New sections
+        "typosquatting":    typo,
+        "cookies":          sandbox_data.get("cookies", {}),
+        "overlays":         overlays,
+        "dynamic":          dynamic,
         "security_headers": sandbox_data.get("security_headers", {}),
         "domain_age":       sandbox_data.get("domain_age", {}),
         "dns":              sandbox_data.get("dns", {}),
         "prompt_injection": sandbox_data.get("prompt_injection", {}),
         "fingerprint":      sandbox_data.get("fingerprint", {}),
 
-        "risk":         risk,
-        "score":        risk_score,
-        "llm_risk":     llm_risk,
-        "js_risk":      js_risk,
-        "confidence":   confidence,
-        "disagreement": disagreement,
-        "final_score":  final_score,
-        "final_risk":   final_risk,
-        "reasons":      reasons,
-        "ai_analysis":  ai_analysis,
-        "js_analysis":  js_analysis,
+        # Scores
+        "risk":             risk,
+        "score":            heuristic_score,
+        "pre_fusion_score": pre_fusion_score,
+        "final_score":      final_score,
+        "final_risk":       final_risk,
+        "llm_risk":         llm_risk,
+        "js_risk":          js_risk,
+        "confidence":       confidence,
+        "disagreement":     disagreement,
+        "is_trusted":       trusted,
+
+        # Explanations
+        "reasons":          all_reasons,
+        "ai_analysis":      ai_analysis,
+        "js_analysis":      js_analysis,
     })
- 
+
     return result
