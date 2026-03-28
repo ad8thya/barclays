@@ -1,14 +1,15 @@
 # routers/attachments.py
 import uuid
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, Form
 from schemas.attachment import AttachmentResponse, AttachmentData
 from services.attachment_service import analyze_attachment
 from utils.file import read_upload, detect_type_from_filename
 
-router = APIRouter(prefix="/api", tags=["attachment"])
+router = APIRouter(tags=["attachment"])
 
 @router.post("/analyze/attachment", response_model=AttachmentResponse)
 async def analyze_attachment_endpoint(
+    incident_id: str = Form(...),
     file: UploadFile = File(...)
 ):
     incident_id = f"INC-{uuid.uuid4().hex[:6].upper()}"

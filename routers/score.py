@@ -67,7 +67,7 @@ async def analyze_score(req: ScoreRequest):
         "audio": req.audio_score,
     }
 
-    oob_triggered = frs > 0.8
+    oob_triggered = frs > 0.75
     oob_details = None
 
     if oob_triggered:

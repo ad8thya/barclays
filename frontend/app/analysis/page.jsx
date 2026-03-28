@@ -33,6 +33,12 @@ export default function AnalysisPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {LAYERS.map((layer, idx) => {
           const data = resultMap[layer.key];
+
+          const score =
+            layer.key === "website"
+              ? (data?.final_score != null ? data.final_score / 100 : data?.risk_score ?? null)
+              : (data?.risk_score ?? null);
+
           return (
             <div
               key={layer.key}
@@ -47,11 +53,7 @@ export default function AnalysisPage() {
                 title={layer.title}
                 weight={layer.weight}
                 status={analyzing ? "running" : data ? "complete" : "pending"}
-                score={
-                  layer.key === "website"
-                    ? (data?.final_score != null ? data.final_score / 100 : data?.risk_score)
-                    : data?.risk_score
-                }
+                score={score}
               >
                 {layer.key === "website" && data
                   ? <WebsiteBreakdown data={data} />
@@ -82,7 +84,6 @@ function WebsiteBreakdown({ data }) {
   const age        = data.domain_age    || {};
   const inject     = data.prompt_injection || {};
 
-  // Pull only the spiciest flags
   const flags = [
     typo.is_suspicious        && `Typosquatting: ${typo.verdict} → ${typo.closest_legit_domain || "?"}`,
     age.is_new_domain         && `New domain: ${age.domain_age_days ?? "?"}d old`,
@@ -97,7 +98,6 @@ function WebsiteBreakdown({ data }) {
     finalRisk === "HIGH"   ? "#ef4444" :
     finalRisk === "MEDIUM" ? "#f59e0b" : "#10b981";
 
-  // Clean up the LLM text — strip "RISK:" / "CONFIDENCE:" lines, keep REASON
   const llmRaw = data.ai_analysis || "";
   const reasonLine = llmRaw
     .split("\n")
@@ -108,8 +108,6 @@ function WebsiteBreakdown({ data }) {
 
   return (
     <div className="mt-2 space-y-3">
-
-      {/* Score + risk + confidence in one line */}
       <div className="flex items-center gap-2 flex-wrap">
         {finalScore != null && (
           <span
@@ -132,14 +130,12 @@ function WebsiteBreakdown({ data }) {
         )}
       </div>
 
-      {/* LLM reasoning */}
       {llmReason && (
         <p className="text-[11px] text-slate-400 font-mono leading-relaxed border-l-2 border-slate-700 pl-2.5">
           {llmReason}
         </p>
       )}
 
-      {/* Top flags only */}
       {flags.length > 0 && (
         <div className="pt-2 border-t border-white/[0.05] flex flex-col gap-1">
           {flags.map((f, i) => (
@@ -192,6 +188,31 @@ function DefaultBreakdown({ layer, data }) {
             ))}
           </div>
         </div>
+      )}
+
+      {layer.key === "attachment" && data.flags?.length > 0 && (
+        <div className="pt-2 border-t border-white/[0.05]">
+          <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1.5">
+            Flags
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {data.flags.map((f, i) => (
+              <span
+                key={i}
+                className="text-[11px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-mono"
+              >
+                {f}
+              </span>
+            ))}
+          </div>
+          {data.reason && (
+            <p className="text-[11px] text-slate-500 mt-2 italic">{data.reason}</p>
+          )}
+        </div>
+      )}
+
+      {layer.key === "audio" && (
+        <p className="text-[11px] text-slate-600 italic">Not available in this build</p>
       )}
     </div>
   );
