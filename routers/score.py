@@ -67,7 +67,7 @@ async def analyze_score(req: ScoreRequest):
         "audio": req.audio_score,
     }
 
-    oob_triggered = frs > 0.60
+    oob_triggered = frs > 0.75
     oob_details = None
 
     if oob_triggered:
@@ -93,8 +93,8 @@ async def analyze_score(req: ScoreRequest):
         "layer": "score",
         "data": {
             "final_risk_score": round(frs, 2),
-            "verdict": "OOB" if frs > 0.60 else "FLAG" if frs > 0.45 else "CLEAR",
-            "threshold_breached": "OOB" if frs > 0.60 else "FLAG" if frs > 0.45 else "CLEAR",
+            "verdict": "OOB" if frs > 0.8 else "FLAG" if frs > 0.7 else "CLEAR",
+            "threshold_breached": "OOB" if frs > 0.8 else "FLAG" if frs > 0.7 else "CLEAR",
             "oob_triggered": oob_triggered,
             "oob": oob_details,
             "graph": graph_data,
