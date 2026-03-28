@@ -4,3 +4,16 @@ networkx
 requests
 beautifulsoup4
 pydantic
+
+# File / PDF handling
+PyPDF2
+
+# OCR
+pytesseract
+Pillow
+
+# File type detection
+python-magic
+
+# (optional but commonly needed)
+python-multipart
