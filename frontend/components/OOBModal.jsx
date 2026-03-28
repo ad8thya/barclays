@@ -1,6 +1,7 @@
 "use client";
 
 import { useAnalysis } from "@/context/AnalysisContext";
+import { oobRespond } from "@/lib/api";
 
 const CHANNEL_LABELS = {
   push_notification: "Push Notification",
@@ -55,7 +56,7 @@ export default function OOBModal() {
 
           {!notification.body && (
             <p className="text-sm text-slate-400 mb-5 leading-relaxed">
-              FRS has exceeded the <strong className="text-white font-semibold">0.80 threshold</strong> during
+              FRS has exceeded the <strong className="text-white font-semibold">0.60 threshold</strong> during
               an active transaction. Verification sent via trusted secondary channel.
             </p>
           )}
@@ -86,13 +87,19 @@ export default function OOBModal() {
 
           <div className="flex gap-3">
             <button
-              onClick={() => setOobTriggered(false)}
+              onClick={async () => {
+                try { await oobRespond(incidentId, "deny"); } catch {}
+                setOobTriggered(false);
+              }}
               className="flex-1 bg-red-500/15 hover:bg-red-500/25 border border-red-500/20 text-red-400 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors"
             >
               Transaction Frozen
             </button>
             <button
-              onClick={() => setOobTriggered(false)}
+              onClick={async () => {
+                try { await oobRespond(incidentId, "approve"); } catch {}
+                setOobTriggered(false);
+              }}
               className="flex-1 border border-white/[0.06] text-slate-500 hover:text-slate-300 hover:bg-white/[0.03] px-5 py-2.5 rounded-lg text-sm font-medium transition-colors"
             >
               Dismiss

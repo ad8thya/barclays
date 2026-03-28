@@ -12,11 +12,20 @@ PyPDF2
 pytesseract
 Pillow
 
-# File type detection
-python-magic-bin
-
-# (optional but commonly needed)
+# Upload handling
 python-multipart
+
+# Browser automation
+playwright
+httpx
+
+# LLM
+ollama
+
+# Email ML model
+xgboost
+scikit-learn==1.6.1
+scipy
 
 # playwright (sandboxing)
 playwright 

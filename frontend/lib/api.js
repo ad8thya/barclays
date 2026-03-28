@@ -13,6 +13,7 @@ const ENDPOINTS = {
   score: "/analyze/score",
   explain: "/analyze/explain",
   graphAll: "/graph/all",
+  oobRespond: "/oob/respond",
 };
 
 function url(key) {
@@ -80,5 +81,15 @@ export async function analyzeExplain(incidentId, scoreData) {
 // ---- Graph (all nodes + edges) ----
 export async function getGraph() {
   const res = await fetch(url("graphAll"));
+  return res.json();
+}
+
+// ---- OOB Respond (approve / deny) ----
+export async function oobRespond(incidentId, response) {
+  const res = await fetch(url("oobRespond"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ incident_id: incidentId, response }),
+  });
   return res.json();
 }
