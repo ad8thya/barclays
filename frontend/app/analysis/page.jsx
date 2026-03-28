@@ -5,25 +5,24 @@ import LayerCard from "@/components/LayerCard";
 import SignalTag from "@/components/SignalTag";
 
 const LAYERS = [
-  { key: "email", icon: "✉", title: "Email", weight: 35 },
-  { key: "website", icon: "🌐", title: "Website", weight: 25 },
+  { key: "email",      icon: "✉",  title: "Email",      weight: 35 },
+  { key: "website",    icon: "🌐", title: "Website",    weight: 25 },
   { key: "attachment", icon: "📎", title: "Attachment", weight: 15 },
-  { key: "audio", icon: "🎙", title: "Audio", weight: 15 },
+  { key: "audio",      icon: "🎙", title: "Audio",      weight: 15 },
 ];
 
 export default function AnalysisPage() {
   const { emailResult, websiteResult, attachmentResult, audioResult, analyzing } = useAnalysis();
 
   const resultMap = {
-    email: emailResult,
-    website: websiteResult,
+    email:      emailResult,
+    website:    websiteResult,
     attachment: attachmentResult,
-    audio: audioResult,
+    audio:      audioResult,
   };
 
   return (
     <>
-      {/* Header */}
       <div className="mb-8">
         <h2 className="text-lg font-semibold tracking-tight text-slate-100">Module Breakdown</h2>
         <p className="text-sm text-slate-500 mt-0.5">
@@ -35,6 +34,13 @@ export default function AnalysisPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {LAYERS.map((layer, idx) => {
           const data = resultMap[layer.key];
+
+          // derive score — website uses final_score/100, others use risk_score
+          let score = data?.risk_score ?? null;
+          if (layer.key === "website" && data?.final_score != null) {
+            score = data.final_score / 100;
+          }
+
           return (
             <div
               key={layer.key}
@@ -49,7 +55,7 @@ export default function AnalysisPage() {
                 title={layer.title}
                 weight={layer.weight}
                 status={analyzing ? "running" : data ? "complete" : "pending"}
-                score={data?.risk_score}
+                score={score}
               >
                 <SignalList data={data} />
 
@@ -101,6 +107,22 @@ export default function AnalysisPage() {
         }
       `}</style>
     </>
+  );
+}
+
+/* ── Helpers ── */
+
+function RiskBadge({ label, level }) {
+  const cls =
+    level === "HIGH" || level === "OOB"
+      ? "bg-red-500/10 text-red-400 border-red-500/20"
+      : level === "MEDIUM"
+      ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+      : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+  return (
+    <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold border ${cls}`}>
+      {label}
+    </span>
   );
 }
 

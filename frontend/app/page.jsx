@@ -41,83 +41,107 @@ export default function InputPage() {
   async function handleAnalyze() {
     ctx.setAnalyzing(true);
     setLayerProgress({
-      email: "running", website: "running",
+      email:      "running",
+      website:    "running",
       attachment: attachmentFile ? "running" : "skipped",
-      audio: audioFile ? "running" : "skipped",
-      score: "waiting", graph: "waiting",
+      audio:      "skipped",
+      score:      "waiting",
+      graph:      "waiting",
     });
 
     const id = ctx.incidentId;
 
-    // Run all 4 layers in parallel
     const results = await Promise.allSettled([
-      analyzeEmail(id, subject, body, sender).then((r) => { updateProgress("email", "done"); return r; }),
-      analyzeWebsite(id, url).then((r) => { updateProgress("website", "done"); return r; }),
+      analyzeEmail(id, subject, body, sender)
+        .then((r) => { updateProgress("email", "done"); return r; })
+        .catch(() => { updateProgress("email", "done"); return null; }),
+
+      analyzeWebsite(id, url)
+        .then((r) => { updateProgress("website", "done"); return r; })
+        .catch(() => { updateProgress("website", "done"); return null; }),
+
       attachmentFile
-        ? analyzeAttachment(id, attachmentFile).then((r) => { updateProgress("attachment", "done"); return r; })
+        ? analyzeAttachment(id, attachmentFile)
+            .then((r) => { updateProgress("attachment", "done"); return r; })
+            .catch(() => { updateProgress("attachment", "done"); return null; })
         : Promise.resolve(null),
-      audioFile
-        ? analyzeAudio(id, audioFile).then((r) => { updateProgress("audio", "done"); return r; })
-        : Promise.resolve(null),
+
+      Promise.resolve(null), // audio skipped
     ]);
 
-    const emailRes = results[0].status === "fulfilled" ? results[0].value : null;
-    const webRes = results[1].status === "fulfilled" ? results[1].value : null;
+    const emailRes  = results[0].status === "fulfilled" ? results[0].value : null;
+    const webRes    = results[1].status === "fulfilled" ? results[1].value : null;
     const attachRes = results[2].status === "fulfilled" ? results[2].value : null;
-    const audioRes = results[3].status === "fulfilled" ? results[3].value : null;
 
-    const emailScore = emailRes?.success ? (emailRes.data?.risk_score || 0) : 0;
+    // ── Extract scores — all defined here at top level ──
+    const emailScore  = emailRes?.success  ? (emailRes.data?.risk_score  || 0) : 0;
+    const attachScore = attachRes?.success ? (attachRes.data?.risk_score || 0) : 0;
+
     let webScore = 0;
     if (webRes?.success && webRes.data) {
-      webScore = webRes.data.risk_score || 0;
+      const d = webRes.data;
+      if (d.final_score != null)     webScore = d.final_score / 100;
+      else if (d.risk_score != null) webScore = d.risk_score;
     } else if (webRes?.final_score != null) {
       webScore = webRes.final_score / 100;
     }
-    const attachScore = attachRes?.success ? (attachRes.data?.risk_score || 0) : 0;
-    const audioScore = audioRes?.success ? (audioRes.data?.risk_score || 0) : 0;
 
-    ctx.setEmailResult(emailRes?.data || null);
-    ctx.setWebsiteResult(webRes?.data || webRes || null);
+    // ── Extract real domain from website result ──
+    const extractedDomains = [];
+    const domainFromWeb = webRes?.data?.domain || webRes?.domain;
+    if (domainFromWeb) extractedDomains.push(domainFromWeb);
+
+    // ── Store in context ──
+    ctx.setEmailResult(emailRes?.data      || null);
+    ctx.setWebsiteResult(webRes?.data      || webRes || null);
     ctx.setAttachmentResult(attachRes?.data || null);
-    ctx.setAudioResult(audioRes?.data || null);
+    ctx.setAudioResult(null);
 
-    // Score fusion
+    // ── Score fusion ──
     updateProgress("score", "running");
     try {
       const scoreRes = await analyzeScore({
-        incident_id: id,
-        account_id: ctx.accountId,
-        email_score: emailScore,
-        website_score: webScore,
+        incident_id:      id,
+        account_id:       ctx.accountId,
+        email_score:      emailScore,
+        website_score:    webScore,
         attachment_score: attachScore,
-        audio_score: audioScore,
-        domains: ["barcl4ys-secure.com"],
+        audio_score:      0,
+        domains: extractedDomains.length > 0
+          ? extractedDomains
+          : ["barcl4ys-secure.com"],
         ips: ["185.220.101.45"],
       });
       updateProgress("score", "done");
 
-      if (scoreRes.success && scoreRes.data) {
+      if (scoreRes?.success && scoreRes.data) {
         ctx.setScoreResult(scoreRes.data);
         if (scoreRes.data.oob_triggered) {
           ctx.setOobTriggered(true);
         }
-        try {
-          const explainRes = await analyzeExplain(id, scoreRes.data);
-          if (explainRes?.success && explainRes.data) {
-            ctx.setExplanation(explainRes.data.explanation || "");
-          }
-        } catch (e) { console.warn("Explain failed:", e); }
+        analyzeExplain(id, scoreRes.data)
+          .then((r) => {
+            if (r?.success && r.data?.explanation) {
+              ctx.setExplanation(r.data.explanation);
+            }
+          })
+          .catch(() => {});
       }
-    } catch (e) { console.error("Score failed:", e); }
+    } catch (e) {
+      console.error("Score failed:", e);
+      updateProgress("score", "done");
+    }
 
-    // Graph
+    // ── Refresh graph ──
     updateProgress("graph", "running");
     try {
       const graphRes = await getGraph();
-      if (graphRes.success && graphRes.data) {
+      if (graphRes?.success && graphRes.data) {
         ctx.setGraphData(graphRes.data);
       }
-    } catch (e) { console.warn("Graph fetch failed:", e); }
+    } catch (e) {
+      console.warn("Graph fetch failed:", e);
+    }
     updateProgress("graph", "done");
 
     ctx.setAnalyzing(false);

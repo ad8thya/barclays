@@ -4,7 +4,26 @@ import magic          # pip install python-magic
 # On Mac:   brew install libmagic
 from fastapi import UploadFile
 import io
+import os
 
+async def read_upload(file):
+    content = await file.read()
+    filename = file.filename or ""
+    file_type = detect_type_from_filename(filename)
+    return content, file_type
+
+def detect_type_from_filename(filename: str) -> str:
+    ext = os.path.splitext(filename)[-1].lower()
+    mapping = {
+        ".pdf":  "pdf",
+        ".png":  "image",
+        ".jpg":  "image",
+        ".jpeg": "image",
+        ".doc":  "word",
+        ".docx": "word",
+        ".txt":  "text",
+    }
+    return mapping.get(ext, "unsupported")
 SUPPORTED_TYPES = {
     "application/pdf": "pdf",
     "image/png": "image",
