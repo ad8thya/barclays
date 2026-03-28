@@ -4,6 +4,7 @@ import PyPDF2
 import pytesseract
 from PIL import Image
 
+from utils.llm import generate_llm_reason
 from utils.text import extract_flags, score_from_flags, build_reason
 from schemas.attachment import AttachmentData
 
@@ -63,7 +64,13 @@ def analyze_attachment(content: bytes, file_type: str) -> AttachmentData:
     # 3. Score
     flags = extract_flags(text)
     score = score_from_flags(flags)
-    reason = build_reason(flags, score, file_type)
+    if score > 0.3:
+        try:
+            reason = generate_llm_reason(text, flags, score, file_type)
+        except Exception:
+            reason = build_reason(flags, score, file_type)
+    else:
+        reason = build_reason(flags, score, file_type)
 
     return AttachmentData(
         extracted_text=text[:2000],  # truncate for storage — don't log full docs
