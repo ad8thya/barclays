@@ -97,11 +97,11 @@ def generate_fallback_explanation(req, breakdown, graph, oob):
     if req.oob_triggered and oob:
         channel = oob.get("channel", "push_notification").replace("_", " ")
         parts.append(
-            f"The score exceeded the 0.60 OOB threshold, triggering "
+            f"The score exceeded the 0.80 OOB threshold, triggering "
             f"out-of-band verification via {channel}."
         )
-    elif req.final_risk_score > 0.45:
-        parts.append("The score exceeded the 0.45 flag threshold — event flagged for review.")
+    elif req.final_risk_score > 0.7:
+        parts.append("The score exceeded the 0.70 flag threshold — event flagged for review.")
     else:
         parts.append("The score is below intervention thresholds — event logged.")
 
