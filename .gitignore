@@ -1,22 +1,52 @@
+# =========================
 # Dependencies
+# =========================
 frontend/node_modules/
 node_modules/
 
+# =========================
 # Next.js build
+# =========================
 frontend/.next/
+frontend/out/
+frontend/build/
 
+# =========================
 # Python
+# =========================
 __pycache__/
+*.py[cod]
+
 *.pyc
-*.pyo
 
-# SQLite DB (generated at runtime)
+# Virtual env (if you use one later)
+venv/
+.env/
+
+# =========================
+# Database / runtime files
+# =========================
 fraud_graph.db
+*.sqlite3
+*.db
 
+# =========================
 # Environment
+# =========================
 .env
 .env.local
+.env.*.local
 
-# OS
+# =========================
+# Logs / temp
+# =========================
+*.log
+*.tmp
+
+# =========================
+# OS / Editor
+# =========================
 Thumbs.db
 .DS_Store
+.vscode/
+.idea/

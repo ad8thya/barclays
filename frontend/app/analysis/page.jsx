@@ -25,21 +25,25 @@ export default function AnalysisPage() {
     <>
       {/* Header */}
       <div className="mb-8">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="w-1.5 h-5 rounded-full bg-accent" />
-          <h2 className="text-xl font-semibold tracking-tight">Layer-by-Layer Analysis</h2>
-        </div>
-        <p className="text-sm text-slate-500 ml-5">
-          Individual module results — raw signals before fusion
+        <h2 className="text-lg font-semibold tracking-tight text-slate-100">Module Breakdown</h2>
+        <p className="text-sm text-slate-500 mt-0.5">
+          Raw output per analyzer — before score fusion
         </p>
       </div>
 
-      {/* 2×2 grid with staggered entrance */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+      {/* 2×2 grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {LAYERS.map((layer, idx) => {
           const data = resultMap[layer.key];
           return (
-            <div key={layer.key} style={{ animationDelay: `${idx * 150}ms` }} className="animate-slide-up">
+            <div
+              key={layer.key}
+              style={{
+                opacity: 0,
+                animation: `fadeSlideIn 0.3s ease forwards`,
+                animationDelay: `${idx * 120}ms`,
+              }}
+            >
               <LayerCard
                 icon={layer.icon}
                 title={layer.title}
@@ -51,13 +55,16 @@ export default function AnalysisPage() {
 
                 {/* Email flagged phrases */}
                 {layer.key === "email" && data?.flagged_phrases?.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-white/[0.04]">
-                    <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-2 font-medium">
-                      Flagged Phrases
+                  <div className="mt-3 pt-3 border-t border-white/[0.05]">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-2">
+                      Flagged phrases
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       {data.flagged_phrases.map((p, i) => (
-                        <span key={i} className="text-[11px] px-2 py-0.5 rounded-md bg-red-500/10 text-red-400 border border-red-500/20 font-mono">
+                        <span
+                          key={i}
+                          className="text-[11px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-mono"
+                        >
                           &ldquo;{p}&rdquo;
                         </span>
                       ))}
@@ -65,16 +72,17 @@ export default function AnalysisPage() {
                   </div>
                 )}
 
-                {/* Website reasons */}
+                {/* Website detections */}
                 {layer.key === "website" && data?.reasons?.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-white/[0.04]">
-                    <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-2 font-medium">
+                  <div className="mt-3 pt-3 border-t border-white/[0.05]">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-2">
                       Detections
                     </p>
                     <ul className="space-y-1">
                       {data.reasons.map((r, i) => (
                         <li key={i} className="text-[11px] text-slate-400 flex items-start gap-2">
-                          <span className="text-red-400 mt-0.5">›</span> {r}
+                          <span className="text-red-500 mt-0.5 select-none">–</span>
+                          {r}
                         </li>
                       ))}
                     </ul>
@@ -85,6 +93,13 @@ export default function AnalysisPage() {
           );
         })}
       </div>
+
+      <style>{`
+        @keyframes fadeSlideIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </>
   );
 }
