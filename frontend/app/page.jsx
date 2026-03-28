@@ -73,6 +73,7 @@ export default function InputPage() {
     const webRes    = results[1].status === "fulfilled" ? results[1].value : null;
     const attachRes = results[2].status === "fulfilled" ? results[2].value : null;
 
+
     // ── Extract scores — all defined here at top level ──
     const emailScore  = emailRes?.success  ? (emailRes.data?.risk_score  || 0) : 0;
     const attachScore = attachRes?.success ? (attachRes.data?.risk_score || 0) : 0;
@@ -85,6 +86,7 @@ export default function InputPage() {
     } else if (webRes?.final_score != null) {
       webScore = webRes.final_score / 100;
     }
+
 
     // ── Extract real domain from website result ──
     const extractedDomains = [];
@@ -107,10 +109,8 @@ export default function InputPage() {
         website_score:    webScore,
         attachment_score: attachScore,
         audio_score:      0,
-        domains: extractedDomains.length > 0
-          ? extractedDomains
-          : ["barcl4ys-secure.com"],
-        ips: ["185.220.101.45"],
+        domains: extractedDomains.length > 0 ? extractedDomains : [],
+        ips: [],
       });
       updateProgress("score", "done");
 

@@ -30,16 +30,14 @@ export default function AnalysisPage() {
         </p>
       </div>
 
-      {/* 2×2 grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {LAYERS.map((layer, idx) => {
           const data = resultMap[layer.key];
 
-          // derive score — website uses final_score/100, others use risk_score
-          let score = data?.risk_score ?? null;
-          if (layer.key === "website" && data?.final_score != null) {
-            score = data.final_score / 100;
-          }
+          const score =
+            layer.key === "website"
+              ? (data?.final_score != null ? data.final_score / 100 : data?.risk_score ?? null)
+              : (data?.risk_score ?? null);
 
           return (
             <div
@@ -57,43 +55,10 @@ export default function AnalysisPage() {
                 status={analyzing ? "running" : data ? "complete" : "pending"}
                 score={score}
               >
-                <SignalList data={data} />
-
-                {/* Email flagged phrases */}
-                {layer.key === "email" && data?.flagged_phrases?.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-white/[0.05]">
-                    <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-2">
-                      Flagged phrases
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {data.flagged_phrases.map((p, i) => (
-                        <span
-                          key={i}
-                          className="text-[11px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-mono"
-                        >
-                          &ldquo;{p}&rdquo;
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Website detections */}
-                {layer.key === "website" && data?.reasons?.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-white/[0.05]">
-                    <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-2">
-                      Detections
-                    </p>
-                    <ul className="space-y-1">
-                      {data.reasons.map((r, i) => (
-                        <li key={i} className="text-[11px] text-slate-400 flex items-start gap-2">
-                          <span className="text-red-500 mt-0.5 select-none">–</span>
-                          {r}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                {layer.key === "website" && data
+                  ? <WebsiteBreakdown data={data} />
+                  : <DefaultBreakdown layer={layer} data={data} />
+                }
               </LayerCard>
             </div>
           );
@@ -110,35 +75,145 @@ export default function AnalysisPage() {
   );
 }
 
-/* ── Helpers ── */
+/* ── Website card ── */
+function WebsiteBreakdown({ data }) {
+  const finalScore = data.final_score ?? null;
+  const finalRisk  = data.final_risk  ?? data.risk ?? "—";
+  const confidence = data.confidence  ?? null;
+  const typo       = data.typosquatting || {};
+  const age        = data.domain_age    || {};
+  const inject     = data.prompt_injection || {};
 
-function RiskBadge({ label, level }) {
-  const cls =
-    level === "HIGH" || level === "OOB"
-      ? "bg-red-500/10 text-red-400 border-red-500/20"
-      : level === "MEDIUM"
-      ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-      : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+  const flags = [
+    typo.is_suspicious        && `Typosquatting: ${typo.verdict} → ${typo.closest_legit_domain || "?"}`,
+    age.is_new_domain         && `New domain: ${age.domain_age_days ?? "?"}d old`,
+    data.overlays?.fake_login_overlay && "Fake login overlay",
+    data.dns?.fast_flux_suspected     && "Fast-flux DNS",
+    inject.has_issues                 && "Prompt injection payload",
+    data.dynamic?.suspicious_requests?.length > 0
+      && `${data.dynamic.suspicious_requests.length} suspicious request(s)`,
+  ].filter(Boolean);
+
+  const riskColor =
+    finalRisk === "HIGH"   ? "#ef4444" :
+    finalRisk === "MEDIUM" ? "#f59e0b" : "#10b981";
+
+  const llmRaw = data.ai_analysis || "";
+  const reasonLine = llmRaw
+    .split("\n")
+    .find((l) => l.trim().toUpperCase().startsWith("REASON:"));
+  const llmReason = reasonLine
+    ? reasonLine.replace(/^reason:/i, "").trim()
+    : llmRaw.split("\n").find((l) => l.trim() && !l.match(/^(RISK|CONFIDENCE):/i))?.trim() || "";
+
   return (
-    <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold border ${cls}`}>
-      {label}
-    </span>
+    <div className="mt-2 space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        {finalScore != null && (
+          <span
+            className="text-[12px] font-mono font-bold px-2 py-0.5 rounded"
+            style={{ color: riskColor, background: riskColor + "18", border: `1px solid ${riskColor}35` }}
+          >
+            {finalScore}/100
+          </span>
+        )}
+        <span
+          className="text-[10px] uppercase tracking-widest font-semibold"
+          style={{ color: riskColor }}
+        >
+          {finalRisk}
+        </span>
+        {confidence != null && (
+          <span className="text-[10px] text-slate-600 font-mono ml-auto">
+            {confidence}% confidence
+          </span>
+        )}
+      </div>
+
+      {llmReason && (
+        <p className="text-[11px] text-slate-400 font-mono leading-relaxed border-l-2 border-slate-700 pl-2.5">
+          {llmReason}
+        </p>
+      )}
+
+      {flags.length > 0 && (
+        <div className="pt-2 border-t border-white/[0.05] flex flex-col gap-1">
+          {flags.map((f, i) => (
+            <div key={i} className="flex items-start gap-2 text-[11px]">
+              <span className="text-red-500 select-none flex-shrink-0 mt-0.5">–</span>
+              <span className="text-slate-400">{f}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
-function SignalList({ data }) {
-  if (!data?.signals) return null;
-  const entries = Object.entries(data.signals).filter(
-    ([, val]) => val === true || typeof val === "number" || (typeof val === "string" && val)
-  );
-  if (entries.length === 0) return null;
+/* ── Email / attachment / audio cards ── */
+function DefaultBreakdown({ layer, data }) {
+  if (!data) return null;
+
+  const signals = data.signals
+    ? Object.entries(data.signals).filter(
+        ([, v]) => v === true || typeof v === "number" || (typeof v === "string" && v)
+      )
+    : [];
 
   return (
-    <div className="flex flex-wrap gap-1.5 mt-1">
-      {entries.map(([key, val]) => {
-        if (val === true) return <SignalTag key={key} label={formatKey(key)} danger />;
-        return <SignalTag key={key} label={`${formatKey(key)}: ${val}`} />;
-      })}
+    <div className="mt-1 space-y-2">
+      {signals.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {signals.map(([key, val]) =>
+            val === true
+              ? <SignalTag key={key} label={formatKey(key)} danger />
+              : <SignalTag key={key} label={`${formatKey(key)}: ${val}`} />
+          )}
+        </div>
+      )}
+
+      {layer.key === "email" && data.flagged_phrases?.length > 0 && (
+        <div className="pt-2 border-t border-white/[0.05]">
+          <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1.5">
+            Flagged phrases
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {data.flagged_phrases.map((p, i) => (
+              <span
+                key={i}
+                className="text-[11px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-mono"
+              >
+                &ldquo;{p}&rdquo;
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {layer.key === "attachment" && data.flags?.length > 0 && (
+        <div className="pt-2 border-t border-white/[0.05]">
+          <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1.5">
+            Flags
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {data.flags.map((f, i) => (
+              <span
+                key={i}
+                className="text-[11px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-mono"
+              >
+                {f}
+              </span>
+            ))}
+          </div>
+          {data.reason && (
+            <p className="text-[11px] text-slate-500 mt-2 italic">{data.reason}</p>
+          )}
+        </div>
+      )}
+
+      {layer.key === "audio" && (
+        <p className="text-[11px] text-slate-600 italic">Not available in this build</p>
+      )}
     </div>
   );
 }
