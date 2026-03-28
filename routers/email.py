@@ -1,11 +1,26 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
-import httpx
+import sys
+import os
+import pickle
+import scipy.sparse as sp
+
+# Load email model utils under renamed folder to avoid conflict with barclays/utils/
+_model_dir = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', 'services', 'email_model')
+)
+sys.path.insert(0, _model_dir)
+
+from email_utils.features import extract_meta, extract_signals, extract_flagged
 
 router = APIRouter()
 
-EMAIL_MODEL_URL = "http://localhost:8001/analyze/email"
+_pkl_dir    = os.path.join(_model_dir, 'model')
+_model      = pickle.load(open(os.path.join(_pkl_dir, 'xgb_model.pkl'), 'rb'))
+_vectorizer = pickle.load(open(os.path.join(_pkl_dir, 'tfidf_vectorizer.pkl'), 'rb'))
+
+LABEL_MAP = {0: "Official", 1: "Suspicious", 2: "Phishing"}
 
 class EmailRequest(BaseModel):
     incident_id: str
@@ -16,21 +31,38 @@ class EmailRequest(BaseModel):
 @router.post("/analyze/email")
 async def analyze_email(req: EmailRequest):
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            res = await client.post(EMAIL_MODEL_URL, json={
-                "incident_id": req.incident_id,
-                "subject":     req.subject,
-                "body":        req.body,
-                "sender":      req.sender,
-            })
-            return res.json()
+        text  = f"{req.subject} {req.body}"
+        tfidf = _vectorizer.transform([text])
+        meta  = extract_meta(text)
+        X     = sp.hstack([tfidf, meta])
+
+        pred  = int(_model.predict(X)[0])
+        prob  = _model.predict_proba(X)[0]
+
+        risk_score = float(max(prob))
+        signals    = extract_signals(text, req.sender)
+        flagged    = extract_flagged(text)
+
+        return {
+            "success":     True,
+            "incident_id": req.incident_id,
+            "layer":       "email",
+            "data": {
+                "risk_score":       round(risk_score, 2),
+                "label":            LABEL_MAP[pred],
+                "flagged_phrases":  flagged,
+                "signals":          signals,
+                "model_confidence": round(risk_score, 3),
+                "model_used":       "xgboost_v1",
+            },
+            "error": None
+        }
 
     except Exception as e:
-        # Model service down — rule-based fallback so app never breaks
-        return _rule_based_fallback(req, str(e))
+        return _fallback(req, str(e))
 
 
-def _rule_based_fallback(req, error_msg):
+def _fallback(req, error_msg):
     score, signals, flagged = 0.0, {}, []
     text = (req.subject + " " + req.body).lower()
 
@@ -59,16 +91,16 @@ def _rule_based_fallback(req, error_msg):
         signals["credential_request"] = True
 
     return {
-        "success": True,
+        "success":     True,
         "incident_id": req.incident_id,
-        "layer": "email",
+        "layer":       "email",
         "data": {
-            "risk_score":        round(min(1.0, score), 2),
-            "label":             "Suspicious" if score > 0.4 else "Official",
-            "flagged_phrases":   flagged,
-            "signals":           signals,
-            "model_confidence":  round(min(1.0, score), 3),
-            "model_used":        "rule_based_fallback",
+            "risk_score":       round(min(1.0, score), 2),
+            "label":            "Suspicious" if score > 0.4 else "Official",
+            "flagged_phrases":  flagged,
+            "signals":          signals,
+            "model_confidence": round(min(1.0, score), 3),
+            "model_used":       "rule_based_fallback",
         },
-        "error": f"Model service unavailable: {error_msg}"
+        "error": f"Model unavailable: {error_msg}"
     }
