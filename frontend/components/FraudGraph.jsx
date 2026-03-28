@@ -88,8 +88,9 @@ function renderGraph(d3, container, graphData) {
     .force("link", d3.forceLink(edges).id((d) => d.id).distance(140))
     .force("charge", d3.forceManyBody().strength(-350))
     .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + 10));
-
+    .force("collision", d3.forceCollide().radius((d) => nodeRadius(d) + 10))
+    .force("x", d3.forceX(width / 2).strength(0.08))   // ← pulls nodes toward center X
+    .force("y", d3.forceY(height / 2).strength(0.08));  // ← pulls nodes toward center Y
   // Tooltip
   const tooltip = d3.select(container).append("div")
     .style("position", "absolute").style("pointer-events", "none")
@@ -216,6 +217,11 @@ function renderGraph(d3, container, graphData) {
 
   // ── Tick ──
   simulation.on("tick", () => {
+    nodes.forEach((d) => {
+    d.x = Math.max(40, Math.min(width - 40, d.x));
+    d.y = Math.max(40, Math.min(height - 40, d.y));
+    });
+
     link.attr("x1", (d) => d.source.x).attr("y1", (d) => d.source.y)
       .attr("x2", (d) => d.target.x).attr("y2", (d) => d.target.y);
     linkLabel
