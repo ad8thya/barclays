@@ -13,7 +13,12 @@ pytesseract
 Pillow
 
 # File type detection
-python-magic
+python-magic-bin
 
 # (optional but commonly needed)
 python-multipart
+
+# playwright (sandboxing)
+playwright 
+
+
