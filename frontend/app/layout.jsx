@@ -1,6 +1,7 @@
 import "./globals.css";
 import { AnalysisProvider } from "@/context/AnalysisContext";
-import Navbar from "@/components/Navbar";
+import ConditionalNavbar from "@/components/ConditionalNavbar";
+import ConditionalMain from "@/components/ConditionalMain";
 import OOBModal from "@/components/OOBModal";
 
 export const metadata = {
@@ -13,17 +14,11 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body className="min-h-screen font-sans antialiased relative">
         <AnalysisProvider>
-          {/* Ambient animated background */}
           <div className="ambient-bg" />
-
-          {/* App shell */}
           <div className="relative z-10 flex flex-col min-h-screen">
-            <Navbar />
-            <main className="flex-1 w-full max-w-[1280px] mx-auto px-6 lg:px-10 py-8">
-              {children}
-            </main>
+            <ConditionalNavbar />
+            <ConditionalMain>{children}</ConditionalMain>
           </div>
-
           <OOBModal />
         </AnalysisProvider>
       </body>

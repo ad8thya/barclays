@@ -1,360 +1,446 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAnalysis } from "@/context/AnalysisContext";
-import {
-  analyzeEmail,
-  analyzeWebsite,
-  analyzeAttachment,
-  analyzeAudio,
-  analyzeScore,
-  analyzeExplain,
-  getGraph,
-} from "@/lib/api";
+import * as THREE from "three";
+import LandingHero from "@/components/LandingHero";
 
-export default function InputPage() {
-  const router = useRouter();
-  const ctx = useAnalysis();
-
-  const [sender, setSender] = useState("");
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [url, setUrl] = useState("");
-  const [attachmentFile, setAttachmentFile] = useState(null);
-  const [audioFile, setAudioFile] = useState(null);
-
-  // Drag state
-  const [fileDragOver, setFileDragOver] = useState(false);
-  const [audioDragOver, setAudioDragOver] = useState(false);
-
-  // Progress per layer
-  const [layerProgress, setLayerProgress] = useState({
-    email: "idle", website: "idle", attachment: "idle", audio: "idle",
-    score: "idle", graph: "idle",
-  });
-
-  function updateProgress(layer, status) {
-    setLayerProgress((prev) => ({ ...prev, [layer]: status }));
-  }
-
-  async function handleAnalyze() {
-    ctx.setAnalyzing(true);
-    setLayerProgress({
-      email: "running", website: "running",
-      attachment: attachmentFile ? "running" : "skipped",
-      audio: audioFile ? "running" : "skipped",
-      score: "waiting", graph: "waiting",
-    });
-
-    const id = ctx.incidentId;
-
-    // Run all 4 layers in parallel
-    const results = await Promise.allSettled([
-      analyzeEmail(id, subject, body, sender).then((r) => { updateProgress("email", "done"); return r; }),
-      analyzeWebsite(id, url).then((r) => { updateProgress("website", "done"); return r; }),
-      attachmentFile
-        ? analyzeAttachment(id, attachmentFile).then((r) => { updateProgress("attachment", "done"); return r; })
-        : Promise.resolve(null),
-      audioFile
-        ? analyzeAudio(id, audioFile).then((r) => { updateProgress("audio", "done"); return r; })
-        : Promise.resolve(null),
-    ]);
-
-    const emailRes = results[0].status === "fulfilled" ? results[0].value : null;
-    const webRes = results[1].status === "fulfilled" ? results[1].value : null;
-    const attachRes = results[2].status === "fulfilled" ? results[2].value : null;
-    const audioRes = results[3].status === "fulfilled" ? results[3].value : null;
-
-    const emailScore = emailRes?.success ? (emailRes.data?.risk_score || 0) : 0;
-
-
-    let webScore = 0;
-  if (webRes?.success && webRes.data) {
-    const wd = webRes.data;
-    webScore = wd.final_score != null
-      ? wd.final_score / 100
-      : (wd.risk_score || 0);
-  }
-    const attachScore = attachRes?.success ? (attachRes.data?.risk_score || 0) : 0;
-    const audioScore = audioRes?.success ? (audioRes.data?.risk_score || 0) : 0;
-
-    ctx.setEmailResult(emailRes?.data || null);
-    ctx.setWebsiteResult(webRes?.data || webRes || null);
-    ctx.setAttachmentResult(attachRes?.data || null);
-    ctx.setAudioResult(audioRes?.data || null);
-
-    // Score fusion
-    updateProgress("score", "running");
-    try {
-      const scoreRes = await analyzeScore({
-        incident_id: id,
-        account_id: ctx.accountId,
-        email_score: emailScore,
-        website_score: webScore,
-        attachment_score: attachScore,
-        audio_score: audioScore,
-        domains: ["barcl4ys-secure.com"],
-        ips: ["185.220.101.45"],
-      });
-      updateProgress("score", "done");
-
-      if (scoreRes.success && scoreRes.data) {
-        ctx.setScoreResult(scoreRes.data);
-        if (scoreRes.data.oob_triggered) {
-          ctx.setOobTriggered(true);
-        }
-        try {
-          const explainRes = await analyzeExplain(id, scoreRes.data);
-          if (explainRes?.success && explainRes.data) {
-            ctx.setExplanation(explainRes.data.explanation || "");
-          }
-        } catch (e) { console.warn("Explain failed:", e); }
-      }
-    } catch (e) { console.error("Score failed:", e); }
-
-    // Graph
-    updateProgress("graph", "running");
-    try {
-      const graphRes = await getGraph();
-      if (graphRes.success && graphRes.data) {
-        ctx.setGraphData(graphRes.data);
-      }
-    } catch (e) { console.warn("Graph fetch failed:", e); }
-    updateProgress("graph", "done");
-
-    ctx.setAnalyzing(false);
-    router.push("/analysis");
-  }
-
-  const isRunning = ctx.analyzing;
-  const anyProgress = Object.values(layerProgress).some((s) => s !== "idle");
-
+function LockIcon() {
   return (
-    <>
-      {/* Page header */}
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="w-1.5 h-5 rounded-full bg-accent" />
-          <h2 className="text-xl font-semibold tracking-tight">Attack Ingestion</h2>
-        </div>
-        <p className="text-sm text-slate-500 ml-5">
-          Submit suspicious signals for unified campaign analysis
-        </p>
-      </div>
-
-      {/* Two-column layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-        {/* LEFT — Email & URL */}
-        <div className="space-y-5">
-          {/* Email body */}
-          <div className="glass-card p-5">
-            <SectionHeader icon="✉" label="Email Analysis" />
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <Field label="Incident ID" value={ctx.incidentId} onChange={ctx.setIncidentId} />
-              <Field label="Sender" value={sender} onChange={setSender} placeholder="sender@domain.com" />
-            </div>
-            <Field label="Subject" value={subject} onChange={setSubject} placeholder="Email subject line" />
-            <div className="mt-3">
-              <div className="flex justify-between items-center mb-1">
-                <label className="text-[10px] font-medium text-slate-600 uppercase tracking-widest">Body</label>
-                <span className="text-[10px] tabular-nums text-slate-700">{body.length} chars</span>
-              </div>
-              <textarea
-                rows={6}
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                placeholder="Paste the full email body here..."
-                className="w-full bg-white/[0.02] border border-white/[0.06] rounded-lg px-3.5 py-3 text-sm text-slate-200 placeholder:text-slate-700 focus:outline-none focus:border-accent/40 resize-none transition-colors font-mono text-[13px] leading-relaxed"
-              />
-            </div>
-          </div>
-
-          {/* URL */}
-          <div className="glass-card p-5">
-            <SectionHeader icon="🌐" label="Website Analysis" />
-            <Field label="Suspicious URL" value={url} onChange={setUrl} placeholder="https://suspicious-domain.com/login" />
-          </div>
-        </div>
-
-        {/* RIGHT — File uploads */}
-        <div className="space-y-5">
-          {/* Attachment drop zone */}
-          <div className="glass-card p-5">
-            <SectionHeader icon="📎" label="Attachment Analysis" />
-            <DropZone
-              accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
-              types="PDF, PNG, JPG, DOC"
-              file={attachmentFile}
-              setFile={setAttachmentFile}
-              dragOver={fileDragOver}
-              setDragOver={setFileDragOver}
-              icon={
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#334155" strokeWidth="1.5">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="12" y2="12"/><line x1="15" y1="15" x2="12" y2="12"/>
-                </svg>
-              }
-            />
-          </div>
-
-          {/* Audio drop zone */}
-          <div className="glass-card p-5">
-            <SectionHeader icon="🎙" label="Audio / Deepfake Detection" />
-            <DropZone
-              accept=".wav,.mp3,.ogg,.m4a"
-              types="WAV, MP3, OGG, M4A"
-              file={audioFile}
-              setFile={setAudioFile}
-              dragOver={audioDragOver}
-              setDragOver={setAudioDragOver}
-              icon={
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#334155" strokeWidth="1.5">
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
-                </svg>
-              }
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Progress indicators */}
-      {anyProgress && (
-        <div className="glass-card p-4 mb-5 animate-fade-in">
-          <div className="flex items-center gap-4 flex-wrap">
-            {["email", "website", "attachment", "audio", "score", "graph"].map((layer) => {
-              const st = layerProgress[layer];
-              return (
-                <div key={layer} className="flex items-center gap-2 text-[11px]">
-                  {st === "running" && <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />}
-                  {st === "done" && <span className="w-2 h-2 rounded-full bg-emerald-500" />}
-                  {st === "waiting" && <span className="w-2 h-2 rounded-full bg-slate-700" />}
-                  {st === "skipped" && <span className="w-2 h-2 rounded-full bg-slate-800" />}
-                  {st === "idle" && <span className="w-2 h-2 rounded-full bg-slate-800" />}
-                  <span className={`uppercase tracking-wide font-medium ${
-                    st === "done" ? "text-emerald-500" : st === "running" ? "text-accent" : "text-slate-600"
-                  }`}>
-                    {layer}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Action bar */}
-      <div className="flex items-end gap-4 pt-5 border-t border-white/[0.04]">
-        <div>
-          <label className="block text-[10px] font-medium text-slate-600 uppercase tracking-widest mb-1">
-            Account ID
-          </label>
-          <input
-            type="text"
-            value={ctx.accountId}
-            onChange={(e) => ctx.setAccountId(e.target.value)}
-            className="bg-white/[0.02] border border-white/[0.06] rounded-lg px-3.5 py-2.5 text-sm text-slate-200 w-48 focus:outline-none focus:border-accent/40 font-mono transition-colors"
-          />
-        </div>
-        <button
-          onClick={handleAnalyze}
-          disabled={isRunning}
-          className={`ml-auto bg-accent hover:bg-accent-light text-white px-10 py-3.5 rounded-xl text-sm font-semibold transition-all disabled:cursor-not-allowed ${
-            isRunning ? "btn-analyzing opacity-90" : "hover:shadow-lg hover:shadow-accent/20"
-          }`}
-        >
-          {isRunning ? (
-            <span className="flex items-center gap-2">
-              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Analyzing...
-            </span>
-          ) : (
-            "Run Analysis"
-          )}
-        </button>
-      </div>
-    </>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
   );
 }
 
-/* ── Helpers ── */
-
-function SectionHeader({ icon, label }) {
+function ArrowRight() {
   return (
-    <div className="flex items-center gap-2.5 mb-4">
-      <span className="text-base">{icon}</span>
-      <h3 className="text-[13px] font-semibold text-slate-300">{label}</h3>
-    </div>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="5" y1="12" x2="19" y2="12" />
+      <polyline points="12 5 19 12 12 19" />
+    </svg>
   );
 }
 
-function Field({ label, value, onChange, placeholder }) {
+function UploadIcon({ size = 32, color = "#1e293b" }) {
   return (
-    <div className="mt-2 first:mt-0">
-      <label className="block text-[10px] font-medium text-slate-600 uppercase tracking-widest mb-1">
-        {label}
-      </label>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full bg-white/[0.02] border border-white/[0.06] rounded-lg px-3.5 py-2.5 text-sm text-slate-200 placeholder:text-slate-700 focus:outline-none focus:border-accent/40 transition-colors"
-      />
-    </div>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="16 16 12 12 8 16" />
+      <line x1="12" y1="12" x2="12" y2="21" />
+      <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+    </svg>
   );
 }
 
-function DropZone({ accept, types, file, setFile, dragOver, setDragOver, icon }) {
-  const inputRef = useRef(null);
+function DatabaseIcon({ size = 32, color = "#1e293b" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+    </svg>
+  );
+}
 
-  function handleDrop(e) {
-    e.preventDefault();
-    setDragOver(false);
-    const f = e.dataTransfer?.files?.[0];
-    if (f) setFile(f);
-  }
+function ShieldIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  );
+}
+
+function ModeCard({
+  icon,
+  label,
+  sublabel,
+  description,
+  badge,
+  badgeColor,
+  dropzone,
+  cta,
+  ctaColor,
+  locked,
+  dim,
+  onHover,
+  onLeave,
+  onClick,
+  delay = 0,
+}) {
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), delay);
+    return () => clearTimeout(t);
+  }, [delay]);
+
+  const borderColor = locked
+    ? "rgba(255,255,255,0.04)"
+    : isDragOver
+    ? "rgba(59,130,246,0.5)"
+    : "rgba(255,255,255,0.07)";
+
+  const bgColor = locked
+    ? "rgba(10,15,30,0.55)"
+    : isDragOver
+    ? "rgba(59,130,246,0.06)"
+    : "rgba(10,15,30,0.72)";
 
   return (
     <div
-      className={`drop-zone rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer min-h-[140px] transition-all ${
-        dragOver ? "drag-over" : ""
-      }`}
-      onClick={() => inputRef.current?.click()}
-      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={handleDrop}
+      onMouseEnter={onHover}
+      onMouseLeave={onLeave}
+      onClick={!locked ? onClick : undefined}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        background: bgColor,
+        border: `1px solid ${borderColor}`,
+        borderRadius: 16,
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        padding: "40px 36px 36px",
+        display: "flex",
+        flexDirection: "column",
+        cursor: locked ? "default" : "pointer",
+        opacity: dim ? 0.38 : mounted ? 1 : 0,
+        transform: mounted ? "translateY(0)" : "translateY(20px)",
+        transition: "opacity 0.55s ease, transform 0.55s ease, border-color 0.2s ease, background 0.2s ease",
+        position: "relative",
+        overflow: "hidden",
+      }}
     >
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        onChange={(e) => setFile(e.target.files[0] || null)}
-        className="hidden"
-      />
-
-      {file ? (
-        <div className="animate-fade-in">
-          <div className="w-10 h-10 mx-auto mb-2 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
-          </div>
-          <p className="text-sm text-slate-300 font-medium">{file.name}</p>
-          <p className="text-[10px] text-slate-600 mt-0.5">{(file.size / 1024).toFixed(1)} KB</p>
-          <button
-            onClick={(e) => { e.stopPropagation(); setFile(null); }}
-            className="text-[10px] text-red-400/70 hover:text-red-400 mt-2 transition-colors"
-          >
-            Remove
-          </button>
-        </div>
-      ) : (
-        <>
-          <div className="mb-3 opacity-40">{icon}</div>
-          <p className="text-sm text-slate-500 mb-1">
-            Drag & drop or <span className="text-accent font-medium">browse</span>
-          </p>
-          <p className="text-[10px] text-slate-700">Accepted: {types}</p>
-        </>
+      {!locked && (
+        <div style={{
+          position: "absolute",
+          top: 0,
+          left: "20%",
+          right: "20%",
+          height: 1,
+          background: "linear-gradient(90deg, transparent, rgba(59,130,246,0.4), transparent)",
+          pointerEvents: "none",
+        }} />
       )}
+
+      {badge && (
+        <div style={{
+          alignSelf: "flex-start",
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          padding: "3px 9px",
+          borderRadius: 4,
+          border: `1px solid ${badgeColor}33`,
+          background: `${badgeColor}11`,
+          marginBottom: 28,
+        }}>
+          {locked && (
+            <span style={{ color: badgeColor, opacity: 0.7, display: "flex" }}>
+              <LockIcon />
+            </span>
+          )}
+          <span style={{
+            fontFamily: "monospace",
+            fontSize: 9,
+            fontWeight: 700,
+            color: badgeColor,
+            textTransform: "uppercase",
+            letterSpacing: "0.12em",
+            opacity: 0.85,
+          }}>
+            {badge}
+          </span>
+        </div>
+      )}
+
+      <div style={{
+        width: 52,
+        height: 52,
+        borderRadius: 12,
+        background: locked ? "rgba(255,255,255,0.03)" : "rgba(59,130,246,0.08)",
+        border: `1px solid ${locked ? "rgba(255,255,255,0.05)" : "rgba(59,130,246,0.15)"}`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        marginBottom: 24,
+        flexShrink: 0,
+      }}>
+        {icon}
+      </div>
+
+      <h2 style={{
+        fontFamily: "monospace",
+        fontSize: 20,
+        fontWeight: 700,
+        color: locked ? "#475569" : "#e2e8f0",
+        letterSpacing: "0.02em",
+        marginBottom: 6,
+      }}>
+        {label}
+      </h2>
+      <p style={{
+        fontFamily: "monospace",
+        fontSize: 10,
+        color: locked ? "#334155" : "#475569",
+        textTransform: "uppercase",
+        letterSpacing: "0.1em",
+        marginBottom: 16,
+      }}>
+        {sublabel}
+      </p>
+
+      <p style={{
+        fontSize: 13,
+        color: locked ? "#2d3a4a" : "#64748b",
+        lineHeight: 1.7,
+        marginBottom: 28,
+        flexGrow: 1,
+      }}>
+        {description}
+      </p>
+
+      {dropzone && (
+        <div
+          onDragOver={(e) => { e.preventDefault(); if (!locked) setIsDragOver(true); }}
+          onDragLeave={() => setIsDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setIsDragOver(false); if (!locked && onClick) onClick(); }}
+          style={{
+            border: `2px dashed ${
+              locked
+                ? "rgba(255,255,255,0.04)"
+                : isDragOver
+                ? "rgba(59,130,246,0.55)"
+                : "rgba(255,255,255,0.07)"
+            }`,
+            borderRadius: 10,
+            padding: "22px 20px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            marginBottom: 20,
+            transition: "border-color 0.2s ease, background 0.2s ease",
+            background: isDragOver ? "rgba(59,130,246,0.04)" : "transparent",
+            minHeight: 110,
+          }}
+        >
+          <div style={{ opacity: locked ? 0.2 : isDragOver ? 1 : 0.4, transition: "opacity 0.2s" }}>
+            {dropzone.icon}
+          </div>
+          <p style={{
+            fontFamily: "monospace",
+            fontSize: 11,
+            color: locked ? "#1e2530" : isDragOver ? "#60a5fa" : "#334155",
+            textAlign: "center",
+            transition: "color 0.2s",
+          }}>
+            {locked ? "Dataset import unavailable" : dropzone.hint}
+          </p>
+          {!locked && (
+            <p style={{
+              fontFamily: "monospace",
+              fontSize: 10,
+              color: "#1e2530",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}>
+              {dropzone.types}
+            </p>
+          )}
+        </div>
+      )}
+
+      <button
+        disabled={locked}
+        onClick={!locked ? onClick : undefined}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          width: "100%",
+          padding: "13px 20px",
+          borderRadius: 10,
+          border: `1px solid ${locked ? "rgba(255,255,255,0.04)" : `${ctaColor}33`}`,
+          background: locked ? "rgba(255,255,255,0.02)" : `${ctaColor}14`,
+          cursor: locked ? "not-allowed" : "pointer",
+          fontFamily: "monospace",
+          fontSize: 12,
+          fontWeight: 700,
+          color: locked ? "#1e2530" : ctaColor,
+          textTransform: "uppercase",
+          letterSpacing: "0.1em",
+          transition: "background 0.2s ease, border-color 0.2s ease",
+        }}
+      >
+        {locked ? (
+          <>
+            <LockIcon />
+            Enterprise Feature
+          </>
+        ) : (
+          <>
+            {cta}
+            <ArrowRight />
+          </>
+        )}
+      </button>
+
+      {locked && (
+        <div style={{
+          marginTop: 12,
+          textAlign: "center",
+          fontFamily: "monospace",
+          fontSize: 10,
+          color: "#1e2530",
+          letterSpacing: "0.06em",
+        }}>
+          Routes to compiled intelligence dashboard
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function LandingPage() {
+  const router = useRouter();
+  const [hoveredCard, setHoveredCard] = useState(null);
+  const [headerMounted, setHeaderMounted] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setHeaderMounted(true), 80);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "#0a0f1e",
+      position: "relative",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "flex-start",
+      padding: "0",
+      overflow: "hidden",
+    }}>
+      {/* Content */}
+      <div style={{
+        position: "relative",
+        zIndex: 2,
+        width: "100%",
+        maxWidth: 960,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+      }}>
+
+        {/* LandingHero owns all background layers */}
+        <LandingHero />
+
+        {/* Card grid */}
+        <div style={{
+          display: "flex",
+          gap: 16,
+          width: "100%",
+          alignItems: "stretch",
+          padding: "0 0 48px",
+        }}>
+          <ModeCard
+            delay={180}
+            icon={<UploadIcon size={26} color="#3b82f6" />}
+            label="Single Incident"
+            sublabel="Individual Analysis"
+            description="Submit a suspicious email, URL, attachment, or audio clip. All four analyzers run in parallel — results fused into a single risk score with graph correlation."
+            badge="Live"
+            badgeColor="#3b82f6"
+            dropzone={{
+              icon: <UploadIcon size={28} color="#3b82f6" />,
+              hint: "Drop email file or fill fields manually",
+              types: ".eml · .msg · .txt",
+            }}
+            cta="Begin Analysis"
+            ctaColor="#3b82f6"
+            locked={false}
+            dim={hoveredCard === "dataset"}
+            onHover={() => setHoveredCard("single")}
+            onLeave={() => setHoveredCard(null)}
+            onClick={() => router.push("/input")}
+          />
+
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            flexShrink: 0,
+            padding: "0 4px",
+          }}>
+            <div style={{ width: 1, flex: 1, background: "rgba(255,255,255,0.04)" }} />
+            <span style={{
+              fontFamily: "monospace",
+              fontSize: 9,
+              color: "#1e2530",
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              writingMode: "vertical-rl",
+              transform: "rotate(180deg)",
+            }}>
+              or
+            </span>
+            <div style={{ width: 1, flex: 1, background: "rgba(255,255,255,0.04)" }} />
+          </div>
+
+          <ModeCard
+            delay={320}
+            icon={<DatabaseIcon size={26} color="#475569" />}
+            label="Dataset Import"
+            sublabel="Campaign Intelligence"
+            description="Import a multi-incident dataset. CrossShield compiles graph correlations across all entries and surfaces a campaign-level intelligence report."
+            badge="Enterprise"
+            badgeColor="#6366f1"
+            dropzone={{
+              icon: <DatabaseIcon size={28} color="#475569" />,
+              hint: "",
+              types: "",
+            }}
+            cta="Import Dataset"
+            ctaColor="#6366f1"
+            locked={true}
+            dim={hoveredCard === "single"}
+            onHover={() => setHoveredCard("dataset")}
+            onLeave={() => setHoveredCard(null)}
+            onClick={() => router.push("/score")}
+          />
+        </div>
+
+        <div style={{
+          marginTop: 0,
+          marginBottom: 36,
+          fontFamily: "monospace",
+          fontSize: 10,
+          color: "#1e2530",
+          textAlign: "center",
+          letterSpacing: "0.06em",
+          opacity: headerMounted ? 1 : 0,
+          transition: "opacity 0.8s ease 0.6s",
+        }}>
+          All analysis is performed locally against your configured backend endpoint.
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes drift {
+          0%   { transform: translate(0, 0) scale(1); }
+          33%  { transform: translate(60px, 30px) scale(1.04); }
+          66%  { transform: translate(-30px, 60px) scale(0.97); }
+          100% { transform: translate(50px, -20px) scale(1.02); }
+        }
+      `}</style>
     </div>
   );
 }
