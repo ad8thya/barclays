@@ -2,68 +2,271 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAnalysis } from "@/context/AnalysisContext";
+import { useState, useEffect } from "react";
+import { Menu, X } from "lucide-react";
 
 const NAV_ITEMS = [
-  { href: "/",         label: "Input",    icon: "01" },
-  { href: "/analysis", label: "Analysis", icon: "02" },
-  { href: "/graph",    label: "Graph",    icon: "03" },
-  { href: "/score",    label: "Score",    icon: "04" },
+  { href: "/",         label: "Input",    num: "01" },
+  { href: "/analysis", label: "Analysis", num: "02" },
+  { href: "/graph",    label: "Graph",    num: "03" },
+  { href: "/score",    label: "Score",    num: "04" },
 ];
 
 export default function Navbar() {
   const pathname = usePathname();
+  const { incidentId, analyzing, scoreResult } = useAnalysis();
+  const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 40);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => { setMenuOpen(false); }, [pathname]);
+
+  const frs = scoreResult?.final_risk_score ?? null;
+  const threatColor =
+    frs === null ? "#475569"
+    : frs >= 0.8 ? "#ef4444"
+    : frs >= 0.7 ? "#f59e0b"
+    :              "#10b981";
 
   return (
-    <header className="relative z-20 glass-card-subtle border-b border-white/[0.04] rounded-none">
-      <div className="max-w-[1280px] mx-auto px-6 lg:px-10 flex items-center justify-between h-16">
+    <header style={{
+      position: "sticky",
+      top: 0,
+      zIndex: 40,
+      background: "#0c0e12",
+      borderBottom: "1px solid #1e2530",
+      transition: "box-shadow 200ms ease",
+      boxShadow: scrolled ? "0 1px 0 #1e2530" : "none",
+    }}>
+
+      {/* ── Main bar ── */}
+      <div style={{
+        maxWidth: 1280,
+        margin: "0 auto",
+        padding: "0 24px",
+        height: scrolled ? 44 : 52,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        transition: "height 200ms ease",
+      }}>
+
         {/* Brand */}
-        <div className="flex items-center gap-3">
-          {/* Shield icon */}
-          <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
+          <div style={{
+            width: 24, height: 24,
+            border: "1.5px solid #3b82f6",
+            borderRadius: 4,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0,
+          }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
           </div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[15px] font-semibold tracking-[-0.01em] text-white">
-              CrossShield
-            </h1>
-            <div className="hidden sm:block h-4 w-px bg-white/10" />
-            <span className="hidden sm:block text-[11px] font-medium text-slate-500 tracking-wide uppercase">
-              Fraud Intelligence
-            </span>
-          </div>
-        </div>
+          <span style={{
+            fontFamily: "monospace",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#e2e8f0",
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+          }}>
+            CrossShield
+          </span>
+          <span style={{ width: 1, height: 14, background: "#1e2530", flexShrink: 0 }} />
+          <span style={{
+            fontFamily: "monospace",
+            fontSize: 10,
+            color: "#475569",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+          }}
+            className="hide-xs"
+          >
+            Fraud Intelligence
+          </span>
+        </Link>
 
-        {/* Navigation — underline style */}
-        <nav className="flex items-center gap-1">
-          {NAV_ITEMS.map(({ href, label, icon }) => {
+        {/* Desktop nav links */}
+        <nav style={{ display: "flex", alignItems: "stretch" }} className="hide-mobile">
+          {NAV_ITEMS.map(({ href, label, num }) => {
             const active = pathname === href;
             return (
-              <Link key={href} href={href} className="relative group">
-                <div
-                  className={`px-4 py-2 text-[13px] font-medium transition-colors flex items-center gap-2 ${
-                    active ? "text-white" : "text-slate-500 hover:text-slate-300"
-                  }`}
-                >
-                  <span className={`text-[10px] font-mono ${active ? "text-accent" : "text-slate-600"}`}>
-                    {icon}
-                  </span>
-                  {label}
-                </div>
-                {/* Active underline */}
-                <div
-                  className={`absolute bottom-0 left-2 right-2 h-[2px] rounded-full transition-all ${
-                    active
-                      ? "bg-accent opacity-100"
-                      : "bg-transparent opacity-0 group-hover:bg-slate-700 group-hover:opacity-100"
-                  }`}
-                />
-              </Link>
+              <NavLink key={href} href={href} active={active} num={num} label={label} scrolled={scrolled} />
             );
           })}
         </nav>
+
+        {/* Right: incident pill + hamburger */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <IncidentPill
+            incidentId={incidentId}
+            analyzing={analyzing}
+            frs={frs}
+            threatColor={threatColor}
+          />
+          <button
+            onClick={() => setMenuOpen(p => !p)}
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            style={{
+              background: "none",
+              border: "1px solid #1e2530",
+              borderRadius: 4,
+              padding: "5px 7px",
+              cursor: "pointer",
+              color: "#475569",
+              display: "flex",
+              alignItems: "center",
+            }}
+            className="show-mobile"
+          >
+            {menuOpen
+              ? <X size={15} strokeWidth={1.5} />
+              : <Menu size={15} strokeWidth={1.5} />
+            }
+          </button>
+        </div>
       </div>
+
+      {/* ── Mobile dropdown ── */}
+      {menuOpen && (
+        <div style={{ borderTop: "1px solid #1e2530", background: "#0c0e12" }}>
+          {NAV_ITEMS.map(({ href, label, num }) => {
+            const active = pathname === href;
+            return (
+              <Link
+                key={href}
+                href={href}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "11px 24px",
+                  fontSize: 11,
+                  fontFamily: "monospace",
+                  fontWeight: active ? 600 : 400,
+                  color: active ? "#e2e8f0" : "#475569",
+                  textDecoration: "none",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  borderLeft: active ? "2px solid #3b82f6" : "2px solid transparent",
+                  background: active ? "#13161e" : "transparent",
+                }}
+              >
+                <span style={{ fontSize: 9, color: active ? "#3b82f6" : "#334155" }}>{num}</span>
+                {label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes navPulse {
+          0%, 100% { opacity: 1; }
+          50%       { opacity: 0.25; }
+        }
+        @media (max-width: 768px) {
+          .hide-mobile { display: none !important; }
+          .show-mobile  { display: flex !important; }
+        }
+        @media (min-width: 769px) {
+          .show-mobile { display: none !important; }
+        }
+        @media (max-width: 480px) {
+          .hide-xs { display: none !important; }
+        }
+      `}</style>
     </header>
+  );
+}
+
+/* ── Sub-components ── */
+
+function NavLink({ href, active, num, label, scrolled }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <Link
+      href={href}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "0 14px",
+        height: scrolled ? 44 : 52,
+        fontSize: 11,
+        fontFamily: "monospace",
+        fontWeight: active ? 600 : 400,
+        color: active ? "#e2e8f0" : hovered ? "#94a3b8" : "#475569",
+        textDecoration: "none",
+        textTransform: "uppercase",
+        letterSpacing: "0.06em",
+        borderBottom: active ? "2px solid #3b82f6" : "2px solid transparent",
+        transition: "color 120ms ease, border-color 120ms ease",
+      }}
+    >
+      <span style={{ fontSize: 9, color: active ? "#3b82f6" : "#334155" }}>{num}</span>
+      {label}
+    </Link>
+  );
+}
+
+function IncidentPill({ incidentId, analyzing, frs, threatColor }) {
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 7,
+      padding: "4px 10px",
+      border: "1px solid #1e2530",
+      borderRadius: 4,
+      background: "#0f1117",
+    }}>
+      {/* Status dot */}
+      <span style={{
+        width: 6, height: 6,
+        borderRadius: "50%",
+        background: analyzing ? "#f59e0b" : threatColor,
+        flexShrink: 0,
+        animation: analyzing ? "navPulse 1s ease-in-out infinite" : "none",
+      }} />
+
+      {/* Incident ID */}
+      <span style={{
+        fontFamily: "monospace",
+        fontSize: 10,
+        color: "#475569",
+        textTransform: "uppercase",
+        letterSpacing: "0.06em",
+        whiteSpace: "nowrap",
+      }}>
+        {incidentId || "—"}
+      </span>
+
+      {/* FRS score — only shown after analysis */}
+      {frs !== null && (
+        <>
+          <span style={{ width: 1, height: 10, background: "#1e2530", flexShrink: 0 }} />
+          <span style={{
+            fontFamily: "monospace",
+            fontSize: 10,
+            fontWeight: 700,
+            color: threatColor,
+            letterSpacing: "0.04em",
+          }}>
+            {Math.round(frs * 100)}%
+          </span>
+        </>
+      )}
+    </div>
   );
 }
