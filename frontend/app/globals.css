@@ -1,0 +1,148 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Import Inter font ── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ── Base ── */
+body {
+  background: #0a0f1e;
+  color: #e2e8f0;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* ── Ambient background animation ── */
+.ambient-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ambient-bg::before,
+.ambient-bg::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.07;
+  animation: drift 25s ease-in-out infinite alternate;
+}
+
+.ambient-bg::before {
+  width: 600px;
+  height: 600px;
+  background: #3b82f6;
+  top: -200px;
+  left: -100px;
+}
+
+.ambient-bg::after {
+  width: 500px;
+  height: 500px;
+  background: #6366f1;
+  bottom: -150px;
+  right: -100px;
+  animation-delay: -12s;
+  animation-direction: alternate-reverse;
+}
+
+@keyframes drift {
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(80px, 40px) scale(1.05); }
+  66% { transform: translate(-40px, 80px) scale(0.95); }
+  100% { transform: translate(60px, -30px) scale(1.02); }
+}
+
+/* ── Glass card utility ── */
+.glass-card {
+  background: rgba(13, 20, 36, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+}
+
+.glass-card-subtle {
+  background: rgba(13, 20, 36, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 12px;
+}
+
+/* ── Staggered animation ── */
+.stagger-1 { animation-delay: 0ms; }
+.stagger-2 { animation-delay: 150ms; }
+.stagger-3 { animation-delay: 300ms; }
+.stagger-4 { animation-delay: 450ms; }
+
+/* ── Skeleton shimmer ── */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #111827 25%, #1a2332 50%, #111827 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+/* ── Custom scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0f1e;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* ── Analyze button pulse ── */
+@keyframes analyzePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); }
+  50% { box-shadow: 0 0 0 12px rgba(59, 130, 246, 0); }
+}
+
+.btn-analyzing {
+  animation: analyzePulse 1.5s ease-in-out infinite;
+}
+
+/* ── Drag-drop zone ── */
+.drop-zone {
+  border: 2px dashed rgba(255, 255, 255, 0.08);
+  transition: all 0.2s ease;
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.04);
+}
+
+/* ── Network pattern for empty graph state ── */
+.network-pattern {
+  background-image: radial-gradient(circle at 20% 30%, rgba(59,130,246,0.06) 1px, transparent 1px),
+                    radial-gradient(circle at 60% 70%, rgba(99,102,241,0.05) 1px, transparent 1px),
+                    radial-gradient(circle at 80% 20%, rgba(59,130,246,0.04) 1px, transparent 1px);
+  background-size: 40px 40px, 60px 60px, 50px 50px;
+}
+
+/* ── OOB banner ── */
+@keyframes oobPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.oob-banner {
+  animation: oobPulse 1.5s ease-in-out infinite;
+}
