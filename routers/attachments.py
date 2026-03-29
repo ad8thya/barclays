@@ -40,12 +40,17 @@ async def analyze_attachment_endpoint(
             data=None,
             error=f"Extraction failed: {str(e)}"
         )
+    from services.email_model.email_utils.features import extract_signals, extract_flagged
 
+    email_signals = extract_signals(data.extracted_text, "")
+    email_flagged = extract_flagged(data.extracted_text)
     # 3. Return envelope
     return AttachmentResponse(
         success=True,
         incident_id=incident_id,
         layer="attachment",
         data=data,
+        email_signals=email_signals,    # add this field to schema
+        flagged_phrases=email_flagged,
         error=None
     )
