@@ -39,6 +39,20 @@ export default function AnalysisPage() {
               ? (data?.final_score != null ? data.final_score / 100 : data?.risk_score ?? null)
               : (data?.risk_score ?? null);
 
+          const pct = score != null ? Math.round(score * 100) : null;
+          const isHighRisk = pct != null && pct >= 40;
+          const scoreColor = pct == null ? "#475569" : pct >= 40 ? "#ef4444" : "#10b981";
+          const riskLabel = pct == null ? null : pct >= 40 ? "High Risk" : "Low Risk";
+          const riskPillColor = pct == null ? null : pct >= 40
+            ? { bg: "rgba(239,68,68,0.1)", text: "#f87171", dot: "#ef4444", border: "rgba(239,68,68,0.2)" }
+            : { bg: "rgba(16,185,129,0.1)", text: "#34d399", dot: "#10b981", border: "rgba(16,185,129,0.2)" };
+
+          const borderColor = pct == null
+            ? "rgba(255,255,255,0.04)"
+            : pct >= 40
+            ? "rgba(239,68,68,0.2)"
+            : "rgba(16,185,129,0.15)";
+
           return (
             <div
               key={layer.key}
@@ -46,20 +60,111 @@ export default function AnalysisPage() {
                 opacity: 0,
                 animation: `fadeSlideIn 0.3s ease forwards`,
                 animationDelay: `${idx * 120}ms`,
+                background: "rgba(13,17,28,0.75)",
+                border: `1px solid ${borderColor}`,
+                borderRadius: 12,
+                padding: "20px",
+                backdropFilter: "blur(12px)",
+                transition: "border-color 0.3s ease",
               }}
             >
-              <LayerCard
-                icon={layer.icon}
-                title={layer.title}
-                weight={layer.weight}
-                status={analyzing ? "running" : data ? "complete" : "pending"}
-                score={score}
-              >
+              {/* Header row */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: 8,
+                    background: "rgba(255,255,255,0.04)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 16,
+                  }}>
+                    {layer.icon}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#e2e8f0", lineHeight: 1 }}>
+                      {layer.title}
+                    </div>
+                    <div style={{ fontSize: 10, color: "#475569", fontFamily: "monospace", marginTop: 3 }}>
+                      Weight: {layer.weight}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* Risk pill — only shown when score is available */}
+                {riskLabel && riskPillColor && (
+                  <span style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    padding: "4px 10px",
+                    borderRadius: 100,
+                    background: riskPillColor.bg,
+                    border: `1px solid ${riskPillColor.border}`,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fontFamily: "monospace",
+                    color: riskPillColor.text,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    whiteSpace: "nowrap",
+                  }}>
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: riskPillColor.dot, flexShrink: 0 }} />
+                    {riskLabel}
+                  </span>
+                )}
+
+                {/* Analyzing spinner */}
+                {analyzing && !riskLabel && (
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 5,
+                    padding: "4px 10px", borderRadius: 100,
+                    background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.2)",
+                    fontSize: 10, fontWeight: 700, fontFamily: "monospace",
+                    color: "#fbbf24", textTransform: "uppercase", letterSpacing: "0.06em",
+                  }}>
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#f59e0b", animation: "pulse 1s ease-in-out infinite" }} />
+                    Analysing
+                  </span>
+                )}
+              </div>
+
+              {/* Score display */}
+              {analyzing && pct == null ? (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ height: 36, width: 96, background: "rgba(255,255,255,0.04)", borderRadius: 6, marginBottom: 10 }} />
+                  <div style={{ height: 6, background: "rgba(255,255,255,0.04)", borderRadius: 4 }} />
+                </div>
+              ) : pct == null ? (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 30, fontWeight: 700, color: "#334155", fontFamily: "monospace" }}>—</div>
+                  <div style={{ height: 6, background: "rgba(255,255,255,0.03)", borderRadius: 4, marginTop: 10 }} />
+                </div>
+              ) : (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span style={{ fontSize: 30, fontWeight: 700, color: scoreColor, fontFamily: "monospace" }}>
+                      {pct}
+                    </span>
+                    <span style={{ fontSize: 13, color: "#475569", fontWeight: 500 }}>/ 100</span>
+                  </div>
+                  <div style={{ height: 6, background: "rgba(255,255,255,0.04)", borderRadius: 4, marginTop: 10, overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%",
+                      width: `${pct}%`,
+                      background: scoreColor,
+                      borderRadius: 4,
+                      transition: "width 700ms ease-out",
+                    }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Detail content */}
+              <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.6 }}>
                 {layer.key === "website" && data
                   ? <WebsiteBreakdown data={data} />
                   : <DefaultBreakdown layer={layer} data={data} />
                 }
-              </LayerCard>
+              </div>
             </div>
           );
         })}
@@ -69,6 +174,10 @@ export default function AnalysisPage() {
         @keyframes fadeSlideIn {
           from { opacity: 0; transform: translateY(8px); }
           to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
         }
       `}</style>
     </>
@@ -94,9 +203,8 @@ function WebsiteBreakdown({ data }) {
       && `${data.dynamic.suspicious_requests.length} suspicious request(s)`,
   ].filter(Boolean);
 
-  const riskColor =
-    finalRisk === "HIGH"   ? "#ef4444" :
-    finalRisk === "MEDIUM" ? "#f59e0b" : "#10b981";
+  const pct = finalScore != null ? finalScore : null;
+  const scoreColor = pct == null ? "#475569" : pct >= 40 ? "#ef4444" : "#10b981";
 
   const llmRaw = data.ai_analysis || "";
   const reasonLine = llmRaw
@@ -107,41 +215,41 @@ function WebsiteBreakdown({ data }) {
     : llmRaw.split("\n").find((l) => l.trim() && !l.match(/^(RISK|CONFIDENCE):/i))?.trim() || "";
 
   return (
-    <div className="mt-2 space-y-3">
-      <div className="flex items-center gap-2 flex-wrap">
+    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         {finalScore != null && (
-          <span
-            className="text-[12px] font-mono font-bold px-2 py-0.5 rounded"
-            style={{ color: riskColor, background: riskColor + "18", border: `1px solid ${riskColor}35` }}
-          >
+          <span style={{
+            fontSize: 11, fontFamily: "monospace", fontWeight: 700,
+            padding: "2px 8px", borderRadius: 4,
+            color: scoreColor,
+            background: scoreColor + "18",
+            border: `1px solid ${scoreColor}35`,
+          }}>
             {finalScore}/100
           </span>
         )}
-        <span
-          className="text-[10px] uppercase tracking-widest font-semibold"
-          style={{ color: riskColor }}
-        >
-          {finalRisk}
-        </span>
         {confidence != null && (
-          <span className="text-[10px] text-slate-600 font-mono ml-auto">
+          <span style={{ fontSize: 10, color: "#475569", fontFamily: "monospace", marginLeft: "auto" }}>
             {confidence}% confidence
           </span>
         )}
       </div>
 
       {llmReason && (
-        <p className="text-[11px] text-slate-400 font-mono leading-relaxed border-l-2 border-slate-700 pl-2.5">
+        <p style={{
+          fontSize: 11, color: "#64748b", fontFamily: "monospace",
+          lineHeight: 1.6, borderLeft: "2px solid #1e2530", paddingLeft: 10, margin: 0,
+        }}>
           {llmReason}
         </p>
       )}
 
       {flags.length > 0 && (
-        <div className="pt-2 border-t border-white/[0.05] flex flex-col gap-1">
+        <div style={{ paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column", gap: 4 }}>
           {flags.map((f, i) => (
-            <div key={i} className="flex items-start gap-2 text-[11px]">
-              <span className="text-red-500 select-none flex-shrink-0 mt-0.5">–</span>
-              <span className="text-slate-400">{f}</span>
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 11 }}>
+              <span style={{ color: "#ef4444", flexShrink: 0, marginTop: 1 }}>–</span>
+              <span style={{ color: "#64748b" }}>{f}</span>
             </div>
           ))}
         </div>
@@ -161,9 +269,9 @@ function DefaultBreakdown({ layer, data }) {
     : [];
 
   return (
-    <div className="mt-1 space-y-2">
+    <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 8 }}>
       {signals.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {signals.map(([key, val]) =>
             val === true
               ? <SignalTag key={key} label={formatKey(key)} danger />
@@ -173,16 +281,17 @@ function DefaultBreakdown({ layer, data }) {
       )}
 
       {layer.key === "email" && data.flagged_phrases?.length > 0 && (
-        <div className="pt-2 border-t border-white/[0.05]">
-          <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1.5">
+        <div style={{ paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+          <p style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", color: "#334155", marginBottom: 6, margin: "0 0 6px" }}>
             Flagged phrases
           </p>
-          <div className="flex flex-wrap gap-1.5">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {data.flagged_phrases.map((p, i) => (
-              <span
-                key={i}
-                className="text-[11px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-mono"
-              >
+              <span key={i} style={{
+                fontSize: 11, padding: "2px 8px", borderRadius: 4,
+                background: "rgba(239,68,68,0.08)", color: "#f87171",
+                border: "1px solid rgba(239,68,68,0.2)", fontFamily: "monospace",
+              }}>
                 &ldquo;{p}&rdquo;
               </span>
             ))}
@@ -191,28 +300,29 @@ function DefaultBreakdown({ layer, data }) {
       )}
 
       {layer.key === "attachment" && data.flags?.length > 0 && (
-        <div className="pt-2 border-t border-white/[0.05]">
-          <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1.5">
+        <div style={{ paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+          <p style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", color: "#334155", margin: "0 0 6px" }}>
             Flags
           </p>
-          <div className="flex flex-wrap gap-1.5">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {data.flags.map((f, i) => (
-              <span
-                key={i}
-                className="text-[11px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-mono"
-              >
+              <span key={i} style={{
+                fontSize: 11, padding: "2px 8px", borderRadius: 4,
+                background: "rgba(239,68,68,0.08)", color: "#f87171",
+                border: "1px solid rgba(239,68,68,0.2)", fontFamily: "monospace",
+              }}>
                 {f}
               </span>
             ))}
           </div>
           {data.reason && (
-            <p className="text-[11px] text-slate-500 mt-2 italic">{data.reason}</p>
+            <p style={{ fontSize: 11, color: "#475569", marginTop: 8, fontStyle: "italic" }}>{data.reason}</p>
           )}
         </div>
       )}
 
       {layer.key === "audio" && (
-        <p className="text-[11px] text-slate-600 italic">Not available in this build</p>
+        <p style={{ fontSize: 11, color: "#334155", fontStyle: "italic" }}>Not available in this build</p>
       )}
     </div>
   );

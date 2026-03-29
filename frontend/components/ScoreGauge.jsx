@@ -70,12 +70,12 @@ function useArcDash(pct) {
    Threshold zones rendered as thin arc bands
 ───────────────────────────────────────────── */
 const ZONES = [
-  { from: 0,  to: 70,  color: "#10b981" },
-  { from: 70, to: 80,  color: "#f59e0b" },
-  { from: 80, to: 100, color: "#ef4444" },
+  { from: 0,   to: 40,  color: "#10b981" },
+  { from: 40,  to: 100, color: "#ef4444" },
 ];
 
-const TICKS = [0, 25, 50, 70, 80, 100];
+
+const TICKS = [0, 20, 40, 60, 80, 100];
 
 /* ─────────────────────────────────────────────
    Main component
@@ -84,15 +84,8 @@ export default function ScoreGauge({ score = 0 }) {
   const pct    = Math.max(0, Math.min(1, score)) * 100;
   const { displayValue, rawValue } = useNumberCounter({ value: pct, decimalPlaces: 0 });
 
-  const threatColor =
-    rawValue >= 80 ? "#ef4444"
-    : rawValue >= 70 ? "#f59e0b"
-    :                  "#10b981";
-
-  const verdict =
-    score >= 0.8 ? "OOB TRIGGERED"
-    : score >= 0.7 ? "SUSPICIOUS"
-    :               "CLEAR";
+  const threatColor = rawValue >= 40 ? "#ef4444" : "#10b981";
+  const verdict = score >= 0.4 ? "HIGH RISK" : score > 0 ? "LOW RISK" : "—";
 
   const { filled, arcLen, circumference } = useArcDash(rawValue);
 
@@ -240,35 +233,34 @@ export default function ScoreGauge({ score = 0 }) {
         justifyContent: "center",
       }}>
         {[
-          { label: "Clear",      color: "#10b981", range: "< 70" },
-          { label: "Suspicious", color: "#f59e0b", range: "70–80" },
-          { label: "High Risk",  color: "#ef4444", range: "> 80" },
-        ].map(({ label, color, range }) => (
-          <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{
-              width: 6, height: 6,
-              borderRadius: "50%",
-              background: color,
-              flexShrink: 0,
-            }} />
-            <span style={{
-              fontFamily: "monospace",
-              fontSize: 9,
-              color: "#475569",
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-            }}>
-              {label}
-            </span>
-            <span style={{
-              fontFamily: "monospace",
-              fontSize: 9,
-              color: "#334155",
-            }}>
-              {range}
-            </span>
-          </div>
-        ))}
+  { label: "Low Risk",  color: "#10b981", range: "< 40" },
+  { label: "High Risk", color: "#ef4444", range: ">= 40" },
+].map(({ label, color, range }) => (
+  <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+    <span style={{
+      width: 6, height: 6,
+      borderRadius: "50%",
+      background: color,
+      flexShrink: 0,
+    }} />
+    <span style={{
+      fontFamily: "monospace",
+      fontSize: 9,
+      color: "#475569",
+      textTransform: "uppercase",
+      letterSpacing: "0.06em",
+    }}>
+      {label}
+    </span>
+    <span style={{
+      fontFamily: "monospace",
+      fontSize: 9,
+      color: "#334155",
+    }}>
+      {range}
+    </span>
+  </div>
+))}
       </div>
     </div>
   );

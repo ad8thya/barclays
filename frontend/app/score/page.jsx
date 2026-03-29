@@ -13,13 +13,11 @@ const BAR_DEFS = [
 ];
 
 function threatColor(frs) {
-  if (frs >= 0.8) return "#ef4444";
-  if (frs >= 0.7) return "#f59e0b";
+  if (frs >= 0.4) return "#ef4444";
   return "#10b981";
 }
 function threatBorder(frs) {
-  if (frs >= 0.8) return "#451a1a";
-  if (frs >= 0.7) return "#3d2d0d";
+  if (frs >= 0.4) return "#451a1a";
   return "#14372a";
 }
 function barColor(val, weight) {
@@ -32,7 +30,7 @@ export default function ScorePage() {
   const { scoreResult, explanation, oobTriggered } = useAnalysis();
   const frs       = scoreResult?.final_risk_score  || 0;
   const breakdown = scoreResult?.score_breakdown   || {};
-  const verdict   = scoreResult?.verdict           || "—";
+  const verdict = frs >= 0.4 ? "HIGH RISK" : frs > 0 ? "LOW RISK" : "—";
   const tc        = threatColor(frs);
   const tb        = threatBorder(frs);
 
