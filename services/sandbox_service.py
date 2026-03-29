@@ -3,6 +3,7 @@
 # ============================================================
 
 import re
+import socket
 import hashlib
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -28,6 +29,9 @@ try:
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
+
+# Disabled for performance — re-enable when needed
+PLAYWRIGHT_AVAILABLE = False
 
 
 # ── Domain lists ──────────────────────────────────────────────────────────────
@@ -141,7 +145,6 @@ def analyze_cookies(response: requests.Response, domain: str) -> dict:
                 issues.append(f"Session cookie '{cookie.name}' missing HttpOnly")
                 score += 20
 
-    # High-confidence malicious patterns only
     if re.search(r'atob\s*\(.*?cookie', raw_html, re.IGNORECASE | re.DOTALL):
         issues.append("Base64-obfuscated cookie operation — evasion attempt")
         score += 35
@@ -167,7 +170,6 @@ def detect_iframes_and_overlays(soup: BeautifulSoup, base_domain: str) -> dict:
     issues = []
     score = 0.0
 
-    # iframes
     iframes = soup.find_all("iframe")
     iframe_details = []
     for iframe in iframes:
@@ -183,12 +185,11 @@ def detect_iframes_and_overlays(soup: BeautifulSoup, base_domain: str) -> dict:
 
         if hidden:
             if _is_safe_iframe(src):
-                pass  # GTM noscript iframes, analytics — completely normal
+                pass
             else:
                 issues.append(f"Unknown hidden iframe (src: {src[:80] or 'none'})")
                 score += 35
 
-    # Fake login overlay (password field inside fixed/absolute positioned container)
     fake_login = 0
     for div in soup.find_all(["div", "section", "form"]):
         style = div.get("style", "").lower().replace(" ", "")
@@ -199,7 +200,6 @@ def detect_iframes_and_overlays(soup: BeautifulSoup, base_domain: str) -> dict:
         issues.append("Password field inside positioned overlay — fake login injection")
         score += 45
 
-    # Full-page overlay in <style>
     for block in soup.find_all("style"):
         css = block.get_text().lower().replace(" ", "")
         if "position:fixed" in css and ("width:100%" in css or "inset:0" in css) and "z-index" in css:
@@ -207,7 +207,6 @@ def detect_iframes_and_overlays(soup: BeautifulSoup, base_domain: str) -> dict:
             score += 30
             break
 
-    # Inline JS — only definitive malicious patterns
     all_inline_js = " ".join(s.get_text() for s in soup.find_all("script", src=False))
     js_issues = []
 
@@ -290,7 +289,10 @@ def analyze_domain_age(domain: str) -> dict:
         return result
 
     try:
+        socket.setdefaulttimeout(4)
         w = whois_lib.whois(_apex(domain.split(":")[0]))
+        socket.setdefaulttimeout(None)
+
         creation = w.creation_date
         if isinstance(creation, list):
             creation = creation[0]
@@ -318,6 +320,7 @@ def analyze_domain_age(domain: str) -> dict:
             result["issues"].append("No creation date in WHOIS")
             result["risk_score"] = 10
     except Exception as e:
+        socket.setdefaulttimeout(None)
         result["issues"].append(f"WHOIS failed: {str(e)[:60]}")
         result["risk_score"] = 5
 
@@ -346,12 +349,10 @@ def analyze_dns(domain: str) -> dict:
         a_ans = resolver.resolve(clean, "A")
         result["a_records"] = [str(r) for r in a_ans]
         result["ttl_seconds"] = a_ans.rrset.ttl
-        # < 30s is genuine fast-flux; 30–300s is CDN/load-balancer (normal)
         if a_ans.rrset.ttl < 30:
             result["low_ttl"] = True
             result["issues"].append(f"TTL {a_ans.rrset.ttl}s — fast-flux suspected")
             result["risk_score"] += 35
-        # Fast-flux also = many A records AND low TTL together
         if len(result["a_records"]) > 8 and a_ans.rrset.ttl < 60:
             result["fast_flux_suspected"] = True
             result["issues"].append("Many A records + low TTL — fast-flux pattern")
@@ -381,7 +382,6 @@ def analyze_dns(domain: str) -> dict:
         result["has_mx"] = len(list(resolver.resolve(apex, "MX"))) > 0
     except Exception:
         pass
-    # Missing MX = no penalty (many legit non-email domains)
 
     result["risk_score"] = min(result["risk_score"], 100)
     return result
@@ -568,8 +568,6 @@ def run_sandbox(url: str) -> dict:
     sandbox["dynamic"]          = run_playwright_analysis(url)
 
     # ── Weighted blend of all sub-scores ──────────────────────────
-    # Weights reflect how decisive each signal is for phishing.
-    # They sum to 1.0 intentionally so the blend stays in 0–100.
     typo_s    = sandbox["typosquatting"]["risk_score"]
     overlay_s = sandbox["overlays"]["overlay_risk_score"]
     dynamic_s = sandbox["dynamic"]["dynamic_risk_score"]
@@ -588,7 +586,6 @@ def run_sandbox(url: str) -> dict:
         + dns_s     * 0.06
         + header_s  * 0.04
     )
-    # Prompt injection is additive bonus (capped) — it's a specific attacker signal
     inject_bonus = min(inject_s * 0.5, 20)
 
     extra_risk = min(int(blended + inject_bonus), 100)
@@ -612,5 +609,3 @@ def run_sandbox(url: str) -> dict:
     sandbox["extra_risk_score"]   = extra_risk
     sandbox["extra_risk_reasons"] = reasons
     return sandbox
-
-    

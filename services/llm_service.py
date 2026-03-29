@@ -3,8 +3,8 @@ import requests
 import time
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-MAX_RETRIES = 2
-RETRY_DELAY = 1.0  # seconds
+MAX_RETRIES = 0
+RETRY_DELAY = 0
 
 
 def analyze_with_llm(features: dict, retries: int = MAX_RETRIES) -> str:
@@ -77,11 +77,11 @@ Respond ONLY with the RISK/CONFIDENCE/REASON lines. No markdown, no preamble."""
                     "prompt": prompt,
                     "stream": False,
                     "options": {
-                        "temperature": 0.1,   # low temp = deterministic, consistent
-                        "num_predict": 120,    # cap output — we only need 3 lines
+                        "temperature": 0.1,
+                        "num_predict": 120,
                     }
                 },
-                timeout=15
+                timeout=120
             )
             response.raise_for_status()
             return response.json().get("response", "")

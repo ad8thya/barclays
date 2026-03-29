@@ -116,7 +116,7 @@ async def analyze_score(req: ScoreRequest):
             campaign_summary = oob_details["campaign_summary"],
         )
 
-    verdict = "OOB" if frs > 0.40 else "FLAG" if frs < 0.39 else "CLEAR"
+    verdict = "OOB" if frs > 0.30 else "FLAG" if frs < 0.29 else "CLEAR"
 
     return {
         "success":     True,
